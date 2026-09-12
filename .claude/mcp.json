@@ -1,18 +1,10 @@
 {
   "mcpServers": {
-    "repo-graph": {
-      "command": "uvx",
-      "args": [
-        "mcp-repo-graph",
-        "--repo",
-        "."
-      ]
-    },
-    "code-graph": {
+    "knowledge-graph": {
       "command": "npx",
       "args": [
         "-y",
-        "@sdsrss/code-graph-mcp"
+        "@modelcontextprotocol/server-memory"
       ]
     }
   }
