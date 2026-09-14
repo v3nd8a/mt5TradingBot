@@ -15,7 +15,7 @@ import MetaTrader5 as mt5_module
 import pandas as pd
 
 from config.settings import settings
-from db.models import Candle as CableModel
+from db.models import Candle
 
 logger = logging.getLogger("mt5_connector")
 
@@ -35,9 +35,26 @@ class MT5Connector:
                 logger.error(f"MT5 initialization failed: {self._last_error}")
                 return False
 
-            # Проверяем авторизацию
-            login = mt5_module.login(int(settings.MT5_LOGIN), settings.MT5_PASSWORD, settings.MT5_SERVER)
-            if not login:
+            # Выбираем реквизиты в зависимости от режима
+            if settings.MT5_DEMO_MODE and settings.MT5_DEMO_LOGIN:
+                mt5_login = int(settings.MT5_DEMO_LOGIN)
+                mt5_password = settings.MT5_DEMO_PASSWORD
+                mt5_server = settings.MT5_DEMO_SERVER
+                logger.info(
+                    f"Connecting in DEMO mode: login={mt5_login} server={mt5_server}"
+                )
+            else:
+                mt5_login = int(settings.MT5_LOGIN) if settings.MT5_LOGIN else None
+                mt5_password = settings.MT5_PASSWORD
+                mt5_server = settings.MT5_SERVER
+
+            if not mt5_login:
+                self._last_error = "MT5_LOGIN not set in .env"
+                logger.error(self._last_error)
+                return False
+
+            login_ok = mt5_module.login(mt5_login, mt5_password, mt5_server)
+            if not login_ok:
                 self._last_error = mt5_module.last_error()
                 logger.error(f"MT5 login failed: {self._last_error}")
                 return False
@@ -161,40 +178,44 @@ class MT5Connector:
         if df.empty:
             return 0
 
-        from db.engine import sync_engine
+        try:
+            from db.engine import sync_engine
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-        rows = []
-        for _, row in df.iterrows():
-            rows.append({
-                "symbol": symbol,
-                "timeframe": timeframe,
-                "open_time": pd.Timestamp(row["time"]),
-                "close_time": pd.Timestamp(row["time"]) + pd.Timedelta(minutes=self._tf_minutes(timeframe)),
-                "open_price": float(row["open"]),
-                "high_price": float(row["high"]),
-                "low_price": float(row["low"]),
-                "close_price": float(row["close"]),
-                "volume": int(row.get("volume", 0)),
-            })
+            rows = []
+            for _, row in df.iterrows():
+                rows.append({
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "open_time": pd.Timestamp(row["time"]),
+                    "close_time": pd.Timestamp(row["time"]) + pd.Timedelta(minutes=self._tf_minutes(timeframe)),
+                    "open_price": float(row["open"]),
+                    "high_price": float(row["high"]),
+                    "low_price": float(row["low"]),
+                    "close_price": float(row["close"]),
+                    "volume": int(row.get("volume", 0)),
+                })
 
-        from sqlalchemy import insert
-        with sync_engine.connect() as conn:
-            with conn.begin():
-                stmt = CableModel.__table__.insert().prefix_of("OR IGNORE")
-                # Using raw SQL for upsert
-                sql = f"""
-                    INSERT INTO candles (symbol, timeframe, open_time, close_time,
-                        open_price, high_price, low_price, close_price, volume)
-                    VALUES ({', '.join(['%s'] * len(rows[0]))})
-                    ON CONFLICT (symbol, timeframe, open_time) DO UPDATE SET
-                        close_price = EXCLUDED.close_price,
-                        volume = EXCLUDED.volume
-                """
-                # Simpler approach: use pandas to_sql with method
-                pass
+            with sync_engine.connect() as conn:
+                with conn.begin():
+                    insert_stmt = pg_insert(Candle).values(rows)
+                    stmt = insert_stmt.on_conflict_do_update(
+                        index_elements=[Candle.symbol, Candle.timeframe, Candle.open_time],
+                        set_=dict(
+                            close_price=insert_stmt.excluded.close_price,
+                            high_price=insert_stmt.excluded.high_price,
+                            low_price=insert_stmt.excluded.low_price,
+                            open_price=insert_stmt.excluded.open_price,
+                            volume=insert_stmt.excluded.volume,
+                        ),
+                    )
+                    conn.execute(stmt)
 
-        logger.debug(f"Saved {len(df)} candles for {symbol} {timeframe}")
-        return len(df)
+            logger.debug(f"Saved {len(df)} candles for {symbol} {timeframe}")
+            return len(df)
+        except Exception as e:
+            logger.warning(f"Could not save candles to DB: {e}")
+            return 0
 
     @staticmethod
     def _tf_minutes(tf: str) -> int:
@@ -209,6 +230,7 @@ class MT5Connector:
         info = mt5_module.account_info()
         if info is None:
             return None
+        # MT5 API использует margin_free (не free_margin)
         return {
             "login": info.login,
             "server": info.server,
@@ -216,9 +238,9 @@ class MT5Connector:
             "balance": info.balance,
             "equity": info.equity,
             "margin": info.margin,
-            "free_margin": info.free_margin,
+            "free_margin": getattr(info, "margin_free", getattr(info, "free_margin", 0.0)),
             "profit": info.profit,
-            "margin_level": info.margin_level,
+            "margin_level": getattr(info, "margin_level", 0.0),
             "trade_mode": int(info.trade_mode),  # 0=DEMO,1=REAL,etc.
         }
 
@@ -293,7 +315,7 @@ class MT5Connector:
             action = mt5_module.ORDER_TYPE_BUY
         else:
             price = mt5_module.symbol_info(symbol).bid
-            action = mt5.ORDER_TYPE_SELL
+            action = mt5_module.ORDER_TYPE_SELL
 
         if price is None or price == 0:
             logger.error(f"Cannot get valid price for {symbol}")

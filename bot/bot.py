@@ -89,8 +89,9 @@ class TelegramBotHandler:
                 "Доступные команды:\n"
                 "/status  — текущий статус бота\n"
                 "/balance — баланс и equity\n"
-                "/signals — последние сигналы\n"
-                "/analyze [symbol] — ручной анализ\n"
+                "/signals — последний AI прогноз\n"
+                "/analyze [symbol] — ручной анализ рынка\n"
+                "/manual <symbol> [BUY|SELL] — ручное открытие ордера или анализ\n"
                 "/positions — открытые позиции\n"
                 "/help    — эта справка",
                 parse_mode="Markdown"
@@ -173,10 +174,97 @@ class TelegramBotHandler:
                 for p in positions[:10]
             ])
             
+        @self._dp.message(Command("signals"))
+        async def cmd_signals(message: Message):
+            from connector.mt5 import get_mt5
+            from engine.ai import get_ai_engine
+
+            mt5 = get_mt5()
+            ai_engine = get_ai_engine()
+            symbol = settings.DEFAULT_SYMBOL
+            candles = mt5.get_candles(symbol=symbol, timeframe="H1", count=300)
+            if candles.empty:
+                await message.answer("❌ Данные свечей недоступны")
+                return
+
+            res = ai_engine.analyze(candles, symbol=symbol)
+            emoji = {"BUY": "🟢", "SELL": "🔴", "HOLD": "⚪"}[res.signal.value]
             await message.answer(
-                f"📂 *Positions* ({len(positions)}):\n\n{pos_text}",
+                f"📡 *Последний AI сигнал для {symbol}*\n\n"
+                f"{emoji} Сигнал: *{res.signal.value}*\n"
+                f"Уверенность: `{res.confidence:.0%}`\n"
+                f"SL: `{res.stop_loss}` | TP: `{res.take_profit}`\n"
+                f"Причина: _{res.reason}_",
                 parse_mode="Markdown"
             )
+
+        @self._dp.message(Command("manual"))
+        async def cmd_manual(message: Message):
+            parts = message.text.split()
+            if len(parts) < 2:
+                await message.answer(
+                    "Использование: `/manual <symbol> [BUY|SELL]`\nПример: `/manual EURUSD BUY` или `/manual EURUSD`",
+                    parse_mode="Markdown"
+                )
+                return
+
+            symbol = parts[1].upper()
+            direction = parts[2].upper() if len(parts) > 2 else None
+
+            from connector.mt5 import get_mt5
+            from engine.ai import get_ai_engine
+            from trader.order_executor import get_executor, OrderRequest
+            from engine.models import PredictionResult, SignalType
+
+            mt5 = get_mt5()
+            if not mt5.is_connected and not mt5.connect():
+                await message.answer("❌ MT5 не подключен")
+                return
+
+            executor = get_executor(mt5)
+
+            if direction in ["BUY", "SELL"]:
+                # Ручное выставление ордера
+                dummy_signal = PredictionResult(
+                    signal=SignalType[direction],
+                    confidence=1.0,
+                    reason="Manual command from Telegram",
+                )
+                order_req = executor.plan_order(dummy_signal, symbol)
+                if not order_req:
+                    await message.answer(f"❌ Не удалось сформировать ордер для {symbol}")
+                    return
+
+                res = executor.execute(order_req)
+                if res:
+                    await message.answer(
+                        f"✅ Ордер отправлен: *{direction} {symbol}* {order_req.volume:.2f} lot\n"
+                        f"SL: `{order_req.sl_price}` | TP: `{order_req.tp_price}`",
+                        parse_mode="Markdown"
+                    )
+                else:
+                    await message.answer(f"❌ Ошибка исполнения ордера для {symbol}")
+            else:
+                # Ручной запуск анализа
+                candles = mt5.get_candles(symbol=symbol, timeframe="H1", count=300)
+                if candles.empty:
+                    await message.answer(f"❌ Нет данных по свечам для {symbol}")
+                    return
+
+                ai = get_ai_engine()
+                pred = ai.analyze(candles, symbol=symbol)
+                emoji = {"BUY": "🟢", "SELL": "🔴", "HOLD": "⚪"}[pred.signal.value]
+                await message.answer(
+                    f"🔍 *Ручной анализ: {symbol}*\n\n"
+                    f"{emoji} Сигнал: *{pred.signal.value}* (уверенность: {pred.confidence:.0%})\n"
+                    f"Причина: _{pred.reason}_\n"
+                    f"SL: `{pred.stop_loss}` | TP: `{pred.take_profit}`",
+                    parse_mode="Markdown"
+                )
+
+        @self._dp.message(Command("help"))
+        async def cmd_help(message: Message):
+            await cmd_start(message)
 
     async def send_notification(self, text: str):
         """Отправить уведомление админу."""
@@ -184,7 +272,7 @@ class TelegramBotHandler:
             return
         
         try:
-            await self._bot.sendMessage(
+            await self._bot.send_message(
                 chat_id=self.admin_id,
                 text=text,
                 parse_mode="Markdown",

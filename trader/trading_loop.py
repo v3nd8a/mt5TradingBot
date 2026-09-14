@@ -20,7 +20,7 @@ from connector.mt5 import MT5Connector
 from engine.ai import AIEngine
 from trader.order_executor import OrderExecutor, OrderRequest
 from db.engine import health_check, init_db, run_schema_migration, get_db_session
-from db.models import Signal, Trade, PortfolioSnapshot, Session
+from db.models import Signal, Trade, PortfolioSnapshot
 
 logger = logging.getLogger("trader")
 
@@ -33,6 +33,7 @@ class TradingLoop:
         self.ai = AIEngine()
         self.executor = OrderExecutor(self.mt5)
         self._running = False
+        self._db_available = False
         self._current_symbol: str = settings.DEFAULT_SYMBOL
         
         # Статистика
@@ -60,10 +61,11 @@ class TradingLoop:
         run_schema_migration()
 
         # Проверяем доступность БД
-        db_ok = await health_check()
-        if not db_ok:
-            logger.error("Database unavailable — check PostgreSQL is running!")
-            return
+        self._db_available = await health_check()
+        if not self._db_available:
+            logger.warning("Database unavailable — running in memory/file-log mode without DB persistence")
+        else:
+            logger.info("Database connected and ready")
 
         # 2. Подключение к MT5 (M2)
         logger.info("Connecting to MT5...")
@@ -107,7 +109,7 @@ class TradingLoop:
         except asyncio.CancelledError:
             logger.info("Trading loop cancelled")
         finally:
-            await self.stop()
+            self.stop()
 
     async def _trading_cycle(self):
         """Один цикл торгового процесса."""
@@ -167,6 +169,21 @@ class TradingLoop:
                         
                         # Сохраняем сделку в БД
                         await self._save_trade(signal, order_request)
+
+                        # Telegram уведомление
+                        try:
+                            from bot.bot import get_bot_token
+                            bot_inst = get_bot_token()
+                            if bot_inst and bot_inst._running:
+                                await bot_inst.send_notification(
+                                    f"🚨 *Новая сделка исполнена!*\n\n"
+                                    f"Символ: `{order_request.symbol}`\n"
+                                    f"Действие: *{order_request.direction}* {order_request.volume:.2f} lot\n"
+                                    f"SL: `{order_request.sl_price}` | TP: `{order_request.tp_price}`\n"
+                                    f"Причина: _{signal.reason}_"
+                                )
+                        except Exception as notif_err:
+                            logger.debug(f"Notification error: {notif_err}")
                     else:
                         self._orders_failed += 1
                         logger.error(f"[ORDER FAILED] {signal.signal.value} for {self._current_symbol}")
@@ -185,23 +202,20 @@ class TradingLoop:
 
     async def _save_signal(self, signal):
         """Сохранить AI сигнал в БД."""
+        if not self._db_available:
+            return
+
         try:
-            import MetaTrader5 as mt5_module
-            info = mt5_module.symbol_info(self._current_symbol)
-            
             async with get_db_session() as session:
-                from sqlalchemy import insert
-                
                 sa_signal = Signal(
                     symbol=self._current_symbol,
                     signal_type=signal.signal.value,
                     confidence=signal.confidence,
                     reason=signal.reason[:500] if signal.reason else None,
-                    candle_count=len(getattr(signal, '_candles', 300)),
+                    candle_count=len(getattr(signal, '_candles', [])) or 300,
                     timeframe="H1",
                     model_version="kronos-gemini/v1.0",
                 )
-                
                 session.add(sa_signal)
                 await session.commit()
                 logger.debug(f"Signal saved to DB: {sa_signal.id}")
@@ -210,9 +224,11 @@ class TradingLoop:
 
     async def _save_trade(self, signal, order_request: OrderRequest):
         """Сохранить исполненную сделку в БД."""
+        if not self._db_available:
+            return
+
         try:
             async with get_db_session() as session:
-                from sqlalchemy import insert
                 sa_trade = Trade(
                     symbol=order_request.symbol,
                     direction=order_request.direction,
@@ -224,7 +240,6 @@ class TradingLoop:
                     status="OPEN",
                     notes=f"Signal: {signal.reason[:100]}" if signal.reason else None,
                 )
-                
                 session.add(sa_trade)
                 await session.commit()
         except Exception as e:
@@ -232,6 +247,9 @@ class TradingLoop:
 
     async def _save_portfolio_snapshot(self):
         """Сохранить снимок портфеля в БД."""
+        if not self._db_available:
+            return
+
         try:
             account_info = self.mt5.get_account_info()
             if not account_info:

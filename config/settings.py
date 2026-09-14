@@ -1,66 +1,147 @@
-"""Конфигурация приложения через pydantic-settings из .env."""
+"""Конфигурация приложения через pydantic-settings из .env (с fallback на pydantic.BaseModel)."""
 
+import os
 from pathlib import Path
-from pydantic_settings import BaseSettings, SettingsConfigDict
+try:
+    from dotenv import load_dotenv, dotenv_values
+except ImportError:
+    def load_dotenv(*args, **kwargs):
+        pass
 
+    def dotenv_values(*args, **kwargs):
+        return {}
 
-class Settings(BaseSettings):
-    # ==================== MT5 ====================
-    MT5_LOGIN: str
-    MT5_PASSWORD: str
-    MT5_SERVER: str
-    MT5_PATH: str = "C:/Program Files/MetaTrader 5/terminal64.exe"
-    
-    # Демо режим (true = только чтение сигналов, без ордеров)
-    MT5_DEMO_MODE: bool = False
+BASE_DIR = Path(__file__).resolve().parent.parent
+ENV_PATH = BASE_DIR / ".env"
+load_dotenv(dotenv_path=ENV_PATH)
 
-    # ==================== Gemini / AI ====================
-    GEMINI_API_KEY: str
-    GEMINI_MODEL: str = "gemini-2.0-flash"
-    USE_KRONOS_LOCAL: bool = True  # локальная модель Kronos
-    USE_GEMINI_FALLBACK: bool = True  # fallback на Gemini если Kronos упал
+try:
+    from pydantic_settings import BaseSettings, SettingsConfigDict
 
-    # ==================== Database ====================
-    DB_DSN: str = "postgresql+psycopg2://postgres:password@localhost:5432/trading_db"
+    class Settings(BaseSettings):
+        # ==================== MT5 (Real) ====================
+        MT5_LOGIN: str = ""
+        MT5_PASSWORD: str = ""
+        MT5_SERVER: str = ""
+        MT5_PATH: str = "C:/Program Files/MetaTrader 5/terminal64.exe"
+        
+        # Демо аккаунт (AMarkets Demo)
+        MT5_DEMO_LOGIN: str = ""
+        MT5_DEMO_PASSWORD: str = ""
+        MT5_DEMO_SERVER: str = "AMarkets-Demo"
 
-    # ==================== Trading ====================
-    DEFAULT_SYMBOL: str = "EURUSD"
-    TICK_INTERVAL_SEC: int = 5          # интервал опроса тиков
-    ANALYSIS_INTERVAL_MIN: int = 15     # интервал анализа (минуты)
-    CONFIDENCE_THRESHOLD: float = 0.65  # мин. confidence для сигнала
-    MAX_POSITIONS: int = 3               # макс. открытых позиций
-    
-    # Risk management
-    RISK_PER_TRADE_PCT: float = 1.0      # % депозита на сделку
-    DEFAULT_SL_PIPS: float = 50.0        # Stop Loss в пипсах
-    DEFAULT_TP_PIPS: float = 100.0       # Take Profit в пипсах
-    MAX_ORDERS_PER_MIN: int = 3           # rate limiting
-    
-    # ==================== Bot ====================
-    BOT_TOKEN: str = ""
-    ADMIN_ID: str = ""
+        # Демо режим (true = только чтение сигналов, без ордеров)
+        MT5_DEMO_MODE: bool = False
 
-    # ==================== Logging ====================
-    LOG_LEVEL: str = "INFO"
-    LOG_DIR: str = "logs"
-    LOG_MAX_BYTES: int = 10 * 1024 * 1024  # 10 MB
-    LOG_BACKUP_COUNT: int = 10
+        # ==================== Gemini / AI ====================
+        GEMINI_API_KEY: str = ""
+        GEMINI_MODEL: str = "gemini-2.5-flash"
+        USE_KRONOS_LOCAL: bool = True  # локальная модель Kronos
+        USE_GEMINI_FALLBACK: bool = True  # fallback на Gemini если Kronos упал
 
-    # ==================== Cache ====================
-    PREDICTION_CACHE_TTL_SEC: int = 300     # 5 мин кэш предсказаний
-    PREDICTION_CACHE_MAX: int = 20           # макс. записей в кэше
+        # ==================== Database ====================
+        DB_DSN: str = "postgresql+psycopg2://postgres:password@localhost:5432/trading_db"
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-    )
+        # ==================== Trading ====================
+        DEFAULT_SYMBOL: str = "XAUUSD"
+        TICK_INTERVAL_SEC: int = 5          # интервал опроса тиков
+        ANALYSIS_INTERVAL_MIN: int = 15     # интервал анализа (минуты)
+        CONFIDENCE_THRESHOLD: float = 0.65  # мин. confidence для сигнала
+        MAX_POSITIONS: int = 3               # макс. открытых позиций
+        
+        # Risk management
+        RISK_PER_TRADE_PCT: float = 1.0      # % депозита на сделку
+        DEFAULT_SL_PIPS: float = 50.0        # Stop Loss в пипсах
+        DEFAULT_TP_PIPS: float = 100.0       # Take Profit в пипсах
+        MAX_ORDERS_PER_MIN: int = 3           # rate limiting
+        
+        # ==================== Bot ====================
+        BOT_TOKEN: str = ""
+        ADMIN_ID: str = ""
+
+        # ==================== Logging ====================
+        LOG_LEVEL: str = "INFO"
+        LOG_DIR: str = "logs"
+        LOG_MAX_BYTES: int = 10 * 1024 * 1024  # 10 MB
+        LOG_BACKUP_COUNT: int = 10
+
+        # ==================== Cache ====================
+        PREDICTION_CACHE_TTL_SEC: int = 300     # 5 мин кэш предсказаний
+        PREDICTION_CACHE_MAX: int = 20           # макс. записей в кэше
+
+        model_config = SettingsConfigDict(
+            env_file=str(ENV_PATH),
+            env_file_encoding="utf-8",
+            case_sensitive=False,
+            extra="ignore",
+        )
+
+except ImportError:
+    from pydantic import BaseModel
+
+    class Settings(BaseModel):
+        # ==================== MT5 (Real) ====================
+        MT5_LOGIN: str = ""
+        MT5_PASSWORD: str = ""
+        MT5_SERVER: str = ""
+        MT5_PATH: str = "C:/Program Files/MetaTrader 5/terminal64.exe"
+        
+        # Демо аккаунт (AMarkets Demo)
+        MT5_DEMO_LOGIN: str = ""
+        MT5_DEMO_PASSWORD: str = ""
+        MT5_DEMO_SERVER: str = "AMarkets-Demo"
+        MT5_DEMO_MODE: bool = False
+
+        # ==================== Gemini / AI ====================
+        GEMINI_API_KEY: str = ""
+        GEMINI_MODEL: str = "gemini-2.0-flash"
+        USE_KRONOS_LOCAL: bool = True
+        USE_GEMINI_FALLBACK: bool = True
+
+        # ==================== Database ====================
+        DB_DSN: str = "postgresql+psycopg2://postgres:password@localhost:5432/trading_db"
+
+        # ==================== Trading ====================
+        DEFAULT_SYMBOL: str = "EURUSD"
+        TICK_INTERVAL_SEC: int = 5
+        ANALYSIS_INTERVAL_MIN: int = 15
+        CONFIDENCE_THRESHOLD: float = 0.65
+        MAX_POSITIONS: int = 3
+
+        # Risk management
+        RISK_PER_TRADE_PCT: float = 1.0
+        DEFAULT_SL_PIPS: float = 50.0
+        DEFAULT_TP_PIPS: float = 100.0
+        MAX_ORDERS_PER_MIN: int = 3
+
+        # ==================== Bot ====================
+        BOT_TOKEN: str = ""
+        ADMIN_ID: str = ""
+
+        # ==================== Logging ====================
+        LOG_LEVEL: str = "INFO"
+        LOG_DIR: str = "logs"
+        LOG_MAX_BYTES: int = 10 * 1024 * 1024
+        LOG_BACKUP_COUNT: int = 10
+
+        # ==================== Cache ====================
+        PREDICTION_CACHE_TTL_SEC: int = 300
+        PREDICTION_CACHE_MAX: int = 20
+
+        def __init__(self, **kwargs):
+            env_vals = {k: v for k, v in os.environ.items()}
+            env_file_vals = dotenv_values(ENV_PATH) if ENV_PATH.exists() else {}
+            merged = {**env_file_vals, **env_vals, **kwargs}
+            init_dict = {}
+            for field_name in self.model_fields:
+                val = merged.get(field_name) or merged.get(field_name.lower())
+                if val is not None:
+                    init_dict[field_name] = val
+            super().__init__(**init_dict)
 
 
 settings = Settings()
 
-
 # Path helpers
-BASE_DIR = Path(__file__).resolve().parent.parent
 LOGS_DIR = BASE_DIR / settings.LOG_DIR
 DB_SCHEMA_PATH = BASE_DIR / "db" / "schema.sql"

@@ -22,14 +22,14 @@ class TestSettings(unittest.TestCase):
     def test_risk_params(self):
         self.assertGreater(settings.RISK_PER_TRADE_PCT, 0)
         self.assertGreater(settings.DEFAULT_SL_PIPS, 0)
-        self.assertEqual(DEFAULT_TP_PIPS, 0)
+        self.assertEqual(settings.DEFAULT_TP_PIPS, 100.0)
 
 
 class TestTradingConfig(unittest.TestCase):
     """Проверки торговой конфигурации."""
 
     def test_confidence_threshold(self):
-        self.assertAlmostEqual(0.65 <= settings.CONFIDENCE_THRESHOLD <= 1.0)
+        self.assertTrue(0.65 <= settings.CONFIDENCE_THRESHOLD <= 1.0)
 
     def test_max_positions(self):
         self.assertGreaterEqual(settings.MAX_POSITIONS, 1)

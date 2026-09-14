@@ -1,9 +1,9 @@
-"""AI Engine — прогнозирование через Kronos (локальная) + Gemini fallback.
+"""AI Engine вЂ” РїСЂРѕРіРЅРѕР·РёСЂРѕРІР°РЅРёРµ С‡РµСЂРµР· Kronos (Р»РѕРєР°Р»СЊРЅР°СЏ) + Gemini fallback.
 
-Анализировать рыночные данные и генерировать сигналы:
-- Предсказание свечей через LSTM модель Kronos
-- Расчёт технических индикаторов
-- Fallback на Gemini API если локальная модель недоступна
+РђРЅР°Р»РёР·РёСЂРѕРІР°С‚СЊ СЂС‹РЅРѕС‡РЅС‹Рµ РґР°РЅРЅС‹Рµ Рё РіРµРЅРµСЂРёСЂРѕРІР°С‚СЊ СЃРёРіРЅР°Р»С‹:
+- РџСЂРµРґСЃРєР°Р·Р°РЅРёРµ СЃРІРµС‡РµР№ С‡РµСЂРµР· LSTM РјРѕРґРµР»СЊ Kronos
+- Р Р°СЃС‡С‘С‚ С‚РµС…РЅРёС‡РµСЃРєРёС… РёРЅРґРёРєР°С‚РѕСЂРѕРІ
+- Fallback РЅР° Gemini API РµСЃР»Рё Р»РѕРєР°Р»СЊРЅР°СЏ РјРѕРґРµР»СЊ РЅРµРґРѕСЃС‚СѓРїРЅР°
 """
 
 import logging
@@ -25,11 +25,11 @@ logger = logging.getLogger("ai_engine")
 
 
 class TechnicalAnalysis:
-    """Расчёт технических индикаторов."""
+    """Р Р°СЃС‡С‘С‚ С‚РµС…РЅРёС‡РµСЃРєРёС… РёРЅРґРёРєР°С‚РѕСЂРѕРІ."""
 
     @staticmethod
     def compute(df: pd.DataFrame, symbol: str = "") -> TechnicalIndicators:
-        """Рассчитать все технические индикаторы из DataFrame свечей."""
+        """Р Р°СЃСЃС‡РёС‚Р°С‚СЊ РІСЃРµ С‚РµС…РЅРёС‡РµСЃРєРёРµ РёРЅРґРёРєР°С‚РѕСЂС‹ РёР· DataFrame СЃРІРµС‡РµР№."""
         if df.empty or len(df) < 200:
             logger.warning(f"Not enough data for analysis: {len(df) if not df.empty else 0} candles")
             return TechnicalIndicators(symbol=symbol, current_price=df.iloc[-1]["close"] if not df.empty else 0)
@@ -41,10 +41,10 @@ class TechnicalAnalysis:
         lows = df["low"]
         volumes = df.get("volume", pd.Series([0] * len(df)))
         
-        # Текущая цена
+        # РўРµРєСѓС‰Р°СЏ С†РµРЅР°
         indicators.current_price = float(closes.iloc[-1])
 
-        # SMA (простые скользящие средние)
+        # SMA (РїСЂРѕСЃС‚С‹Рµ СЃРєРѕР»СЊР·СЏС‰РёРµ СЃСЂРµРґРЅРёРµ)
         if len(closes) >= 20:
             indicators.sma_20 = float(closes.rolling(20).mean().iloc[-1])
         if len(closes) >= 50:
@@ -52,7 +52,7 @@ class TechnicalAnalysis:
         if len(closes) >= 200:
             indicators.sma_200 = float(closes.rolling(200).mean().iloc[-1])
 
-        # EMA (экспоненциальные скользящие средние)
+        # EMA (СЌРєСЃРїРѕРЅРµРЅС†РёР°Р»СЊРЅС‹Рµ СЃРєРѕР»СЊР·СЏС‰РёРµ СЃСЂРµРґРЅРёРµ)
         if len(closes) >= 12:
             indicators.ema_12 = float(closes.ewm(span=12).mean().iloc[-1])
         if len(closes) >= 26:
@@ -107,12 +107,12 @@ class TechnicalAnalysis:
             low_14 = lows.rolling(14).min()
             high_14 = highs.rolling(14).max()
             denominator = high_14 - low_14
-            denominator = denominator.replace(0, np.nan)  # избежать деления на ноль
+            denominator = denominator.replace(0, np.nan)  # РёР·Р±РµР¶Р°С‚СЊ РґРµР»РµРЅРёСЏ РЅР° РЅРѕР»СЊ
             k_raw = ((df["close"] - low_14) / denominator) * 100
         
             indicators.stoch_k = float(k_raw.iloc[-1]) if not pd.isna(k_raw.iloc[-1]) else 50.0
             
-            # %D = SMA от %K за 3 периода
+            # %D = SMA РѕС‚ %K Р·Р° 3 РїРµСЂРёРѕРґР°
             indicators.stoch_d = float(k_raw.rolling(3).mean().iloc[-1]) if len(k_raw) >= 3 else 50.0
             
             if indicators.stoch_k >= 80:
@@ -124,7 +124,7 @@ class TechnicalAnalysis:
 
     @staticmethod
     def _rsi(prices: pd.Series, period: int = 14) -> float:
-        """Расчёт RSI."""
+        """Р Р°СЃС‡С‘С‚ RSI."""
         delta = prices.diff()
         gain = delta.where(delta > 0, 0).rolling(period).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
@@ -137,7 +137,7 @@ class TechnicalAnalysis:
 
     @staticmethod
     def _atr(df: pd.DataFrame, period: int = 14) -> float:
-        """Расчёт ATR."""
+        """Р Р°СЃС‡С‘С‚ ATR."""
         high = df["high"]
         low = df["low"]
         close = df["close"].shift(1)
@@ -151,7 +151,7 @@ class TechnicalAnalysis:
 
 
 class PredictionCache:
-    """Кэш последних предсказаний для избежания повторных вычислений."""
+    """РљСЌС€ РїРѕСЃР»РµРґРЅРёС… РїСЂРµРґСЃРєР°Р·Р°РЅРёР№ РґР»СЏ РёР·Р±РµР¶Р°РЅРёСЏ РїРѕРІС‚РѕСЂРЅС‹С… РІС‹С‡РёСЃР»РµРЅРёР№."""
 
     def __init__(self, max_size: int = 20, ttl_sec: int = 300):
         self._cache: OrderedDict[str, tuple[datetime, PredictionResult]] = OrderedDict()
@@ -159,7 +159,7 @@ class PredictionCache:
         self._ttl = ttl_sec
 
     def get(self, key: str) -> Optional[PredictionResult]:
-        """Получить из кэша."""
+        """РџРѕР»СѓС‡РёС‚СЊ РёР· РєСЌС€Р°."""
         if key not in self._cache:
             return None
         
@@ -172,28 +172,28 @@ class PredictionCache:
         return result
 
     def put(self, key: str, result: PredictionResult):
-        """Добавить в кэш."""
+        """Р”РѕР±Р°РІРёС‚СЊ РІ РєСЌС€."""
         if key in self._cache:
             self._cache.pop(key)
         
-        # Удаляем старые записи если переполнен
+        # РЈРґР°Р»СЏРµРј СЃС‚Р°СЂС‹Рµ Р·Р°РїРёСЃРё РµСЃР»Рё РїРµСЂРµРїРѕР»РЅРµРЅ
         while len(self._cache) >= self._max_size:
             self._cache.popitem(last=False)
         
         self._cache[key] = (datetime.now(), result)
 
     def clear(self):
-        """Очистить кэш."""
+        """РћС‡РёСЃС‚РёС‚СЊ РєСЌС€."""
         self._cache.clear()
 
 
 class AIEngine:
-    """AI Engine — анализ рынка и генерация сигналов.
+    """AI Engine вЂ” Р°РЅР°Р»РёР· СЂС‹РЅРєР° Рё РіРµРЅРµСЂР°С†РёСЏ СЃРёРіРЅР°Р»РѕРІ.
     
-    Комбинирует:
-    1. Технический анализ (RSI, MACD, Bollinger, ATR)
-    2. Локальную LSTM модель Kronos для предсказания свечей
-    3. Gemini API fallback для дополнительного анализа
+    РљРѕРјР±РёРЅРёСЂСѓРµС‚:
+    1. РўРµС…РЅРёС‡РµСЃРєРёР№ Р°РЅР°Р»РёР· (RSI, MACD, Bollinger, ATR)
+    2. Р›РѕРєР°Р»СЊРЅСѓСЋ LSTM РјРѕРґРµР»СЊ Kronos РґР»СЏ РїСЂРµРґСЃРєР°Р·Р°РЅРёСЏ СЃРІРµС‡РµР№
+    3. Gemini API fallback РґР»СЏ РґРѕРїРѕР»РЅРёС‚РµР»СЊРЅРѕРіРѕ Р°РЅР°Р»РёР·Р°
     """
 
     def __init__(self):
@@ -206,62 +206,74 @@ class AIEngine:
 
     @property
     def is_ready(self) -> bool:
-        return True  # Технический анализ всегда работает
+        return True  # РўРµС…РЅРёС‡РµСЃРєРёР№ Р°РЅР°Р»РёР· РІСЃРµРіРґР° СЂР°Р±РѕС‚Р°РµС‚
 
     # ==================== Kronos Model ====================
 
     def _load_kronos_model(self):
-        """Загрузить локальную модель Kronos (if available)."""
+        """Загрузить модуль Kronos."""
         if self._kronos_model is not None:
             return True
 
         try:
-            # Определяем путь к модели
-            # В реальном использовании здесь будет загрузка из файла/директории
-            logger.info("Kronos model support — implement Kronos integration")
-            return False
+            from engine.kronos import get_kronos_predictor
+            self._kronos_model = get_kronos_predictor()
+            logger.info("Kronos AI predictor loaded successfully")
+            return True
         except Exception as e:
-            logger.error(f"Failed to load Kronos model: {e}")
+            logger.error(f"Failed to load Kronos predictor: {e}")
             return False
 
-    def _predict_with_kronos(self, df: pd.DataFrame) -> Optional[PredictionResult]:
-        """Предсказание через Kronos LSTM модель."""
+    def _predict_with_kronos(self, df: pd.DataFrame, symbol: str = "") -> Optional[PredictionResult]:
+        """Предсказание через модель Kronos."""
         if not self._load_kronos_model():
             return None
-        
-        # Здесь будет интеграция с реальной моделью Kronos:
-        # https://github.com/shiyu-coder/Kronos
-        # Модель принимает последовательность цен и предсказывает будущие значения
-        pass
+
+        try:
+            return self._kronos_model.predict(df, symbol=symbol)
+        except Exception as e:
+            logger.error(f"Kronos prediction error: {e}")
+            return None
 
     # ==================== Gemini Fallback ====================
 
     def _analyze_with_gemini(self, symbol: str, indicators: TechnicalIndicators, candles: list[dict]) -> Optional[PredictionResult]:
         """Анализ через Gemini API (fallback)."""
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=settings.GEMINI_API_KEY)
-            
-            model = genai.GenerativeModel(settings.GEMINI_MODEL)
-            
-            prompt = self._build_gemini_prompt(symbol, indicators, candles)
-            response = model.generate_content(prompt)
-            
-            return self._parse_gemini_response(response.text)
-        except Exception as e:
-            logger.error(f"Gemini analysis failed: {e}")
+        if not settings.GEMINI_API_KEY:
+            logger.warning("GEMINI_API_KEY not set — skipping Gemini fallback")
             return None
 
+        prompt = self._build_gemini_prompt(symbol, indicators, candles)
+
+        # 1. Попытка через современный google.genai SDK
+        try:
+            from google import genai
+            client = genai.Client(api_key=settings.GEMINI_API_KEY)
+            response = client.models.generate_content(
+                model=settings.GEMINI_MODEL,
+                contents=prompt,
+            )
+            if response and response.text:
+                return self._parse_gemini_response(response.text)
+        except ImportError:
+            logger.warning("google-genai not installed — Gemini fallback disabled")
+            return None
+        except Exception as e:
+            logger.warning(f"Gemini API call failed: {e}")
+            return None
+
+        return None
+
     def _build_gemini_prompt(self, symbol: str, indicators: TechnicalIndicators, candles: list[dict]) -> str:
-        """Сформировать промпт для Gemini."""
+        """РЎС„РѕСЂРјРёСЂРѕРІР°С‚СЊ РїСЂРѕРјРїС‚ РґР»СЏ Gemini."""
         recent_candles = "\n".join([
             f"  Time: {c['time']}, O:{c['open']} H:{c['high']} L:{c['low']} C:{c['close']} V:{c['volume']}"
             for c in candles[-10:]
         ])
         
-        prompt = f"""Ты — профессиональный трейдер и аналитик. Проанализируй символ {symbol} на основе технических индикаторов:
+        prompt = f"""РўС‹ вЂ” РїСЂРѕС„РµСЃСЃРёРѕРЅР°Р»СЊРЅС‹Р№ С‚СЂРµР№РґРµСЂ Рё Р°РЅР°Р»РёС‚РёРє. РџСЂРѕР°РЅР°Р»РёР·РёСЂСѓР№ СЃРёРјРІРѕР» {symbol} РЅР° РѕСЃРЅРѕРІРµ С‚РµС…РЅРёС‡РµСЃРєРёС… РёРЅРґРёРєР°С‚РѕСЂРѕРІ:
 
-ТЕКУЩИЕ ДАННЫЕ (цены ~{indicators.current_price}):
+РўР•РљРЈР©РР• Р”РђРќРќР«Р• (С†РµРЅС‹ ~{indicators.current_price}):
 - SMA20: {indicators.sma_20:.4f}, SMA50: {indicators.sma_50:.4f}, SMA200: {indicators.sma_200:.4f}
 - EMA12: {indicators.ema_12:.4f}, EMA26: {indicators.ema_26:.4f}
 - RSI(14): {indicators.rsi_14:.2f} ({indicators.rsi_signal})
@@ -271,26 +283,26 @@ class AIEngine:
 - Stoch: K={indicators.stoch_k:.1f}, D={indicators.stoch_d:.1f} ({indicators.stoch_signal})
 - Volume Ratio: {indicators.volume_ratio:.2f}
 
-ПОСЛЕДНИЕ 10 СВЕЧЕЙ:
+РџРћРЎР›Р•Р”РќРР• 10 РЎР’Р•Р§Р•Р™:
 {recent_candles}
 
-Верни ТОЛЬКО JSON без текста:
+Р’РµСЂРЅРё РўРћР›Р¬РљРћ JSON Р±РµР· С‚РµРєСЃС‚Р°:
 {{
     "signal": "BUY" | "SELL" | "HOLD",
     "confidence": 0.0-1.0,
-    "reason": "краткое обоснование (до 50 символов)",
-    "target_price": цена_цели или null,
-    "stop_loss": цена_SL или null,
-    "take_profit": цена_TP или null
+    "reason": "РєСЂР°С‚РєРѕРµ РѕР±РѕСЃРЅРѕРІР°РЅРёРµ (РґРѕ 50 СЃРёРјРІРѕР»РѕРІ)",
+    "target_price": С†РµРЅР°_С†РµР»Рё РёР»Рё null,
+    "stop_loss": С†РµРЅР°_SL РёР»Рё null,
+    "take_profit": С†РµРЅР°_TP РёР»Рё null
 }}
 """
         return prompt
 
     def _parse_gemini_response(self, text: str) -> PredictionResult:
-        """Парсить ответ Gemini в PredictionResult."""
+        """РџР°СЂСЃРёС‚СЊ РѕС‚РІРµС‚ Gemini РІ PredictionResult."""
         import json
         
-        # Извлекаем JSON из текста
+        # РР·РІР»РµРєР°РµРј JSON РёР· С‚РµРєСЃС‚Р°
         start = text.find("{")
         end = text.rfind("}") + 1
         
@@ -321,40 +333,40 @@ class AIEngine:
         use_kronos: bool = True,
         use_gemini: bool = True,
     ) -> PredictionResult:
-        """Основной метод анализа — комбинированный подход.
+        """РћСЃРЅРѕРІРЅРѕР№ РјРµС‚РѕРґ Р°РЅР°Р»РёР·Р° вЂ” РєРѕРјР±РёРЅРёСЂРѕРІР°РЅРЅС‹Р№ РїРѕРґС…РѕРґ.
         
-        Алгоритм:
-        1. Рассчитываем технические индикаторы (всегда)
-        2. Генерируем технический сигнал (весовой голосующий системный анализ)
-        3. Если доступен — добавляем Kronos предсказание
-        4. Если доступно — Gemini fallback для валидации
-        5. Финальный сигнал = взвешенная комбинация
+        РђР»РіРѕСЂРёС‚Рј:
+        1. Р Р°СЃСЃС‡РёС‚С‹РІР°РµРј С‚РµС…РЅРёС‡РµСЃРєРёРµ РёРЅРґРёРєР°С‚РѕСЂС‹ (РІСЃРµРіРґР°)
+        2. Р“РµРЅРµСЂРёСЂСѓРµРј С‚РµС…РЅРёС‡РµСЃРєРёР№ СЃРёРіРЅР°Р» (РІРµСЃРѕРІРѕР№ РіРѕР»РѕСЃСѓСЋС‰РёР№ СЃРёСЃС‚РµРјРЅС‹Р№ Р°РЅР°Р»РёР·)
+        3. Р•СЃР»Рё РґРѕСЃС‚СѓРїРµРЅ вЂ” РґРѕР±Р°РІР»СЏРµРј Kronos РїСЂРµРґСЃРєР°Р·Р°РЅРёРµ
+        4. Р•СЃР»Рё РґРѕСЃС‚СѓРїРЅРѕ вЂ” Gemini fallback РґР»СЏ РІР°Р»РёРґР°С†РёРё
+        5. Р¤РёРЅР°Р»СЊРЅС‹Р№ СЃРёРіРЅР°Р» = РІР·РІРµС€РµРЅРЅР°СЏ РєРѕРјР±РёРЅР°С†РёСЏ
         """
         if candles_df.empty or len(candles_df) < 20:
-            return PredictionResult(signal=SignalType.HOLD, confidence=0.0, reason="Недостаточно данных")
+            return PredictionResult(signal=SignalType.HOLD, confidence=0.0, reason="РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ РґР°РЅРЅС‹С…")
 
-        # Технический анализ всегда выполняется
+        # РўРµС…РЅРёС‡РµСЃРєРёР№ Р°РЅР°Р»РёР· РІСЃРµРіРґР° РІС‹РїРѕР»РЅСЏРµС‚СЃСЏ
         indicators = TechnicalAnalysis.compute(candles_df, symbol)
         tech_signal = self._technical_analysis_only(indicators)
         
-        # Кэш ключ
+        # РљСЌС€ РєР»СЋС‡
         cache_key = f"{symbol}_{indicators.current_price:.1f}_{tech_signal.signal.value}"
         cached = self._cache.get(cache_key)
         if cached:
             logger.debug("Cache hit for prediction")
             return cached
 
-        # Kronos предсказание (если включено и модель загружена)
+        # Kronos РїСЂРµРґСЃРєР°Р·Р°РЅРёРµ (РµСЃР»Рё РІРєР»СЋС‡РµРЅРѕ Рё РјРѕРґРµР»СЊ Р·Р°РіСЂСѓР¶РµРЅР°)
         kronos_signal = None
         if use_kronos and settings.USE_KRONOS_LOCAL:
             try:
-                kronos_result = self._predict_with_kronos(candles_df)
+                kronos_result = self._predict_with_kronos(candles_df, symbol=symbol)
                 if kronos_result and kronos_result.signal != SignalType.HOLD:
                     kronos_signal = kronos_result
             except Exception as e:
                 logger.warning(f"Kronos prediction failed, continuing with technical analysis only: {e}")
 
-        # Gemini fallback (если включено)
+        # Gemini fallback (РµСЃР»Рё РІРєР»СЋС‡РµРЅРѕ)
         gemini_signal = None
         if use_gemini and settings.USE_GEMINI_FALLBACK:
             try:
@@ -375,14 +387,14 @@ class AIEngine:
             except Exception as e:
                 logger.warning(f"Gemini analysis failed, using technical + Kronos only: {e}")
 
-        # ==================== Взвешенная комбинация сигналов ====================
+        # ==================== Р’Р·РІРµС€РµРЅРЅР°СЏ РєРѕРјР±РёРЅР°С†РёСЏ СЃРёРіРЅР°Р»РѕРІ ====================
         final_signal = self._combine_signals(
             tech=tech_signal,
             kronos=kronos_signal,
             gemini=gemini_signal,
         )
         
-        # Сохраняем в кэш
+        # РЎРѕС…СЂР°РЅСЏРµРј РІ РєСЌС€
         self._cache.put(cache_key, final_signal)
         
         logger.info(
@@ -394,11 +406,11 @@ class AIEngine:
         return final_signal
 
     def _technical_analysis_only(self, indicators: TechnicalIndicators) -> PredictionResult:
-        """Чисто технический анализ (весовой голосующий алгоритм)."""
-        score = 0.0  # -10 (сильный SELL) to +10 (сильный BUY)
+        """Р§РёСЃС‚Рѕ С‚РµС…РЅРёС‡РµСЃРєРёР№ Р°РЅР°Р»РёР· (РІРµСЃРѕРІРѕР№ РіРѕР»РѕСЃСѓСЋС‰РёР№ Р°Р»РіРѕСЂРёС‚Рј)."""
+        score = 0.0  # -10 (СЃРёР»СЊРЅС‹Р№ SELL) to +10 (СЃРёР»СЊРЅС‹Р№ BUY)
         reasons = []
 
-        # SMA — тренд
+        # SMA вЂ” С‚СЂРµРЅРґ
         if indicators.sma_20 > indicators.sma_50:
             score += 1.5
             reasons.append("Bullish MA cross")
@@ -411,7 +423,7 @@ class AIEngine:
         elif indicators.current_price < indicators.sma_20:
             score -= 1.0
         
-        # EMA — краткосрочный тренд
+        # EMA вЂ” РєСЂР°С‚РєРѕСЃСЂРѕС‡РЅС‹Р№ С‚СЂРµРЅРґ
         if indicators.ema_12 > indicators.ema_26:
             score += 1.5
         elif indicators.ema_12 < indicators.ema_26:
@@ -420,7 +432,7 @@ class AIEngine:
         # RSI
         if indicators.rsi_signal == "OVERSOLD":
             score += 2.0
-            reasons.append(f"RSI overbought {indicators.rsi_signal}")
+            reasons.append(f"RSI oversold ({indicators.rsi_signal})")
         elif indicators.rsi_signal == "OVERBOUGHT":
             score -= 2.0
 
@@ -437,10 +449,10 @@ class AIEngine:
 
         # Bollinger Bands
         if indicators.bb_position <= 0.1:
-            score += 2.0  # цена у нижней границы — возможно отскока
+            score += 2.0  # С†РµРЅР° Сѓ РЅРёР¶РЅРµР№ РіСЂР°РЅРёС†С‹ вЂ” РІРѕР·РјРѕР¶РЅРѕ РѕС‚СЃРєРѕРєР°
             reasons.append("Bollinger lower band bounce")
         elif indicators.bb_position >= 0.9:
-            score -= 2.0  # цена у верхней границы — возможна коррекция
+            score -= 2.0  # С†РµРЅР° Сѓ РІРµСЂС…РЅРµР№ РіСЂР°РЅРёС†С‹ вЂ” РІРѕР·РјРѕР¶РЅР° РєРѕСЂСЂРµРєС†РёСЏ
             reasons.append("Bollinger upper band rejection")
 
         # Stochastic
@@ -451,43 +463,43 @@ class AIEngine:
 
         # Volume confirmation
         if indicators.volume_ratio > 1.5:
-            # Подтверждение сигналом по направлению тренда
+            # РџРѕРґС‚РІРµСЂР¶РґРµРЅРёРµ СЃРёРіРЅР°Р»РѕРј РїРѕ РЅР°РїСЂР°РІР»РµРЅРёСЋ С‚СЂРµРЅРґР°
             direction = 1 if score > 0 else -1
             score += 0.5 * direction
 
-        # Нормализация в confidence
+        # РќРѕСЂРјР°Р»РёР·Р°С†РёСЏ РІ confidence
         signal = SignalType.HOLD
         if score >= 3.0:
             signal = SignalType.BUY
         elif score <= -3.0:
             signal = SignalType.SELL
         
-        confidence = min(abs(score) / 12.0, 1.0)  # нормализация
+        confidence = min(abs(score) / 12.0, 1.0)  # РЅРѕСЂРјР°Р»РёР·Р°С†РёСЏ
 
         return PredictionResult(
             signal=signal,
             confidence=max(confidence, 0.0),
-            reason="; ".join(reasons) if reasons else ("Neutral — no strong signals" if signal == SignalType.HOLD else "Technical analysis"),
-            target_price=self._calc_target(indicators.signal.value),
+            reason="; ".join(reasons) if reasons else ("Neutral вЂ” no strong signals" if signal == SignalType.HOLD else "Technical analysis"),
+            target_price=self._calc_target(signal, indicators),
         )
 
     def _calc_target(self, direction: str, indicators: TechnicalIndicators) -> dict:
-        """Вычислить цели входа/выхода на основе технических индикаторов и ATR."""
+        """Р’С‹С‡РёСЃР»РёС‚СЊ С†РµР»Рё РІС…РѕРґР°/РІС‹С…РѕРґР° РЅР° РѕСЃРЅРѕРІРµ С‚РµС…РЅРёС‡РµСЃРєРёС… РёРЅРґРёРєР°С‚РѕСЂРѕРІ Рё ATR."""
         if not indicators or indicators.current_price <= 0:
             return {"target": None, "sl": None, "tp": None}
 
         atr = indicators.atr_14 if indicators.atr_14 > 0 else 0.0001  # fallback default
         price = indicators.current_price
         
-        # TP на основе ATR (2x ATR для достаточного пространства)
+        # TP РЅР° РѕСЃРЅРѕРІРµ ATR (2x ATR РґР»СЏ РґРѕСЃС‚Р°С‚РѕС‡РЅРѕРіРѕ РїСЂРѕСЃС‚СЂР°РЅСЃС‚РІР°)
         sl_pips = settings.DEFAULT_SL_PIPS
         tp_pips = settings.DEFAULT_TP_PIPS
         
-        if direction == SignalType.BUY:
+        if direction == SignalType.BUY.value:
             target = price + (tp_pips * 0.0001) if "JPY" not in indicators.symbol else price + (tp_pips * 0.01)
             sl = price - (sl_pips * 0.0001) if "JPY" not in indicators.symbol else price - (sl_pips * 0.01)
             tp_atr = price + (2.0 * atr)
-        elif direction == SignalType.SELL:
+        elif direction == SignalType.SELL.value:
             target = price - (tp_pips * 0.0001) if "JPY" not in indicators.symbol else price - (tp_pips * 0.01)
             sl = price + (sl_pips * 0.0001) if "JPY" not in indicators.symbol else price + (sl_pips * 0.01)
             tp_atr = price - (2.0 * atr)
@@ -506,7 +518,7 @@ class AIEngine:
         kronos: Optional[PredictionResult],
         gemini: Optional[PredictionResult]
     ) -> PredictionResult:
-        """Комбинировать сигналы с весами."""
+        """РљРѕРјР±РёРЅРёСЂРѕРІР°С‚СЊ СЃРёРіРЅР°Р»С‹ СЃ РІРµСЃР°РјРё."""
         weights = {
             "tech": 0.5,
             "kronos": 0.25 if settings.USE_KRONOS_LOCAL else 0,
@@ -530,12 +542,12 @@ class AIEngine:
 
         final_score = score_sum / total_weight
         
-        # Определяем сигнал
+        # РћРїСЂРµРґРµР»СЏРµРј СЃРёРіРЅР°Р»
         if abs(final_score) < 0.3:
             return PredictionResult(
                 signal=SignalType.HOLD,
                 confidence=max(abs(final_score), 0.1),
-                reason="Mixed signals — no clear direction",
+                reason="Mixed signals вЂ” no clear direction",
             )
 
         signal = SignalType.BUY if final_score > 0 else SignalType.SELL
@@ -548,7 +560,7 @@ class AIEngine:
         )
 
     def clear_cache(self):
-        """Очистить кэш."""
+        """РћС‡РёСЃС‚РёС‚СЊ РєСЌС€."""
         self._cache.clear()
         logger.info("AI prediction cache cleared")
 
@@ -558,4 +570,8 @@ _ai_engine = None
 
 
 def get_ai_engine() -> AIEngine:
-    return _ai_engine if _ai_engine else AIEngine()
+    global _ai_engine
+    if _ai_engine is None:
+        _ai_engine = AIEngine()
+    return _ai_engine
+

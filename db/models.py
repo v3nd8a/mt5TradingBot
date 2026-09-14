@@ -6,9 +6,10 @@ from typing import Optional
 
 from sqlalchemy import (
     Column, BigInteger, Double, Integer, String, Text, ForeignKey,
-    JSON, DateTime, CheckConstraint, func
+    JSON, DateTime, CheckConstraint, func, TIMESTAMP
 )
-from sqlalchemy.dialects.postgresql import TIMESTAMPTZ
+
+TIMESTAMPTZ = DateTime(timezone=True)
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 

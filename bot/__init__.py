@@ -1,3 +1,3 @@
-from bot.bot import TelegramBot
+from bot.bot import TelegramBotHandler, get_bot_token
 
-__all__ = ["TelegramBot"]
+__all__ = ["TelegramBotHandler", "get_bot_token"]

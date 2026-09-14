@@ -49,11 +49,14 @@ class OrderExecutor:
             return True  # разрешаем в демо
 
         account = self.mt5.get_account_info()
-        if not account or account["balance"] == 0:
+        if not account or account.get("balance", 0) <= 0:
             logger.warning("Insufficient balance to trade")
             return False
         
         free_margin = account.get("free_margin", 0)
+        if free_margin <= 0:
+            logger.warning("No free margin available to trade")
+            return False
        
         return True
 
@@ -175,13 +178,23 @@ class OrderExecutor:
 
     def execute(self, order_request: OrderRequest) -> Optional[dict]:
         """Исполнить запланированный ордер."""
+        if not self.can_trade:
+            logger.warning(f"Cannot execute order for {order_request.symbol}: trade conditions not met")
+            return None
+
         # Проверяем rate limiting
         if not self._check_rate_limit():
             logger.warning(f"Skipping order — rate limited: {order_request.symbol}")
             return None
 
+        # Проверка лимита открытых позиций
+        all_positions = self.mt5.get_positions()
+        if len(all_positions) >= settings.MAX_POSITIONS:
+            logger.warning(f"Max positions limit reached ({len(all_positions)}/{settings.MAX_POSITIONS})")
+            return None
+
         # Проверка что нет позиции в ту же сторону
-        existing_positions = self.mt5.get_positions(order_request.symbol)
+        existing_positions = [p for p in all_positions if p.get("symbol") == order_request.symbol]
         buy_pos = sum(p["volume"] for p in existing_positions if p["type"] == "BUY")
         sell_pos = sum(p["volume"] for p in existing_positions if p["type"] == "SELL")
 
