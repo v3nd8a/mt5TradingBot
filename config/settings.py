@@ -66,6 +66,14 @@ try:
         RISK_PER_TRADE_PCT: float = 1.0      # % депозита на сделку
         DEFAULT_SL_PIPS: float = 100.0        # Stop Loss в пипсах
         DEFAULT_TP_PIPS: float = 100.0       # Take Profit в пипсах
+        FORECAST_RISK_REWARD: float = 2.0
+        MIN_SL_ATR_MULTIPLIER: float = 1.5
+        TRAILING_STOP_ENABLED: bool = True
+        TRAILING_STOP_PIPS: float = 50.0
+        TRAILING_ACTIVATION_PIPS: float = 50.0
+        HEDGE_ENABLED: bool = False
+        HEDGE_TRIGGER_PIPS: float = 100.0
+        HEDGE_VOLUME_RATIO: float = 0.5
         MAX_ORDERS_PER_MIN: int = 3           # rate limiting
         
         # ==================== Bot ====================
@@ -133,6 +141,14 @@ except ImportError:
         RISK_PER_TRADE_PCT: float = 1.0
         DEFAULT_SL_PIPS: float = 50.0
         DEFAULT_TP_PIPS: float = 100.0
+        FORECAST_RISK_REWARD: float = 2.0
+        MIN_SL_ATR_MULTIPLIER: float = 1.5
+        TRAILING_STOP_ENABLED: bool = True
+        TRAILING_STOP_PIPS: float = 50.0
+        TRAILING_ACTIVATION_PIPS: float = 50.0
+        HEDGE_ENABLED: bool = False
+        HEDGE_TRIGGER_PIPS: float = 100.0
+        HEDGE_VOLUME_RATIO: float = 0.5
         MAX_ORDERS_PER_MIN: int = 3
 
         # ==================== Bot ====================

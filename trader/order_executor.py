@@ -119,7 +119,7 @@ class OrderExecutor:
 
         symbol = symbol or settings.DEFAULT_SYMBOL
         
-        # Расчёт SL/TP от цены через ATR или фиксированные пипсы
+        # Базовый fallback, если прогноз не содержит валидной цены цели.
         sl_pips = settings.DEFAULT_SL_PIPS
         tp_pips = settings.DEFAULT_TP_PIPS
         import MetaTrader5 as mt5_module
@@ -137,23 +137,38 @@ class OrderExecutor:
             logger.error(f"Cannot get current price for {symbol}")
             return None
 
-        sl_price = (
+        default_sl = (
             current_price - (sl_pips * point)
             if direction == "BUY"
             else current_price + (sl_pips * point)
         )
         
-        tp_price = (
+        default_tp = (
             current_price + (tp_pips * point)
             if direction == "BUY"
             else current_price - (tp_pips * point)
         )
 
-        # Если AI дал конкретные SL/TP, используем их  
-        if signal.stop_loss:
-            sl_price = signal.stop_loss
-        if signal.take_profit:
-            tp_price = signal.take_profit
+        forecast_distance = None
+        if signal.target_price:
+            target_is_valid = signal.target_price > current_price if direction == "BUY" else signal.target_price < current_price
+            if target_is_valid:
+                forecast_distance = abs(signal.target_price - current_price)
+
+        if forecast_distance:
+            tp_price = signal.take_profit if signal.take_profit else signal.target_price
+            sl_distance = forecast_distance / max(float(settings.FORECAST_RISK_REWARD), 1.0)
+            sl_price = signal.stop_loss if signal.stop_loss else (
+                current_price - sl_distance if direction == "BUY" else current_price + sl_distance
+            )
+        else:
+            sl_price = signal.stop_loss if signal.stop_loss else default_sl
+            tp_price = signal.take_profit if signal.take_profit else default_tp
+
+        if direction == "BUY" and not (sl_price < current_price < tp_price):
+            sl_price, tp_price = default_sl, default_tp
+        elif direction == "SELL" and not (tp_price < current_price < sl_price):
+            sl_price, tp_price = default_sl, default_tp
 
         logger.info(
             f"Order planned: {direction} {symbol} | "
@@ -169,6 +184,82 @@ class OrderExecutor:
             tp_price=round(tp_price, 5),
             reason=signal.reason,
         )
+
+    def manage_open_positions(self, symbol: str = None, minimum_sl_distance: float = None) -> dict:
+        """Трейлинг-стоп и опциональный хедж открытых позиций."""
+        positions = self.mt5.get_positions(symbol)
+        result = {"trailed": 0, "hedged": 0}
+        for position in positions:
+            point = self._get_point(position["symbol"])
+            stop_widened = minimum_sl_distance and self._widen_too_tight_stop(position, minimum_sl_distance)
+            if stop_widened:
+                result["trailed"] += 1
+            if settings.TRAILING_STOP_ENABLED and not stop_widened:
+                new_sl = self._trailing_stop(position, point)
+                if new_sl is not None and self.mt5.modify_position(position["ticket"], new_sl, position.get("tp")):
+                    result["trailed"] += 1
+            if settings.HEDGE_ENABLED and self._should_hedge(position, point):
+                if self._open_hedge(position):
+                    result["hedged"] += 1
+        return result
+
+    def _widen_too_tight_stop(self, position: dict, minimum_distance: float) -> bool:
+        current = float(position["price_current"])
+        old_sl = float(position.get("sl") or 0.0)
+        direction = 1 if position["type"] == "BUY" else -1
+        stop_distance = (current - old_sl) * direction if old_sl else 0.0
+        if old_sl and stop_distance >= minimum_distance:
+            return False
+        new_sl = current - direction * minimum_distance
+        if (direction == 1 and new_sl >= current) or (direction == -1 and new_sl <= current):
+            return False
+        return bool(self.mt5.modify_position(position["ticket"], new_sl, position.get("tp")))
+
+    @staticmethod
+    def _get_point(symbol: str) -> float:
+        import MetaTrader5 as mt5_module
+        info = mt5_module.symbol_info(symbol)
+        return float(info.point) if info and info.point > 0 else (0.01 if "JPY" in symbol else 0.0001)
+
+    @staticmethod
+    def _trailing_stop(position: dict, point: float) -> Optional[float]:
+        distance = float(settings.TRAILING_STOP_PIPS) * point
+        activation = float(settings.TRAILING_ACTIVATION_PIPS) * point
+        current = float(position["price_current"])
+        opened = float(position["price_open"])
+        old_sl = float(position.get("sl") or 0.0)
+        if position["type"] == "BUY":
+            if current - opened < activation:
+                return None
+            candidate = current - distance
+            return candidate if candidate > old_sl and candidate < current else None
+        if opened - current < activation:
+            return None
+        candidate = current + distance
+        return candidate if (old_sl == 0.0 or candidate < old_sl) and candidate > current else None
+
+    @staticmethod
+    def _should_hedge(position: dict, point: float) -> bool:
+        loss_distance = position["price_open"] - position["price_current"] if position["type"] == "BUY" else position["price_current"] - position["price_open"]
+        return loss_distance >= float(settings.HEDGE_TRIGGER_PIPS) * point
+
+    def _open_hedge(self, position: dict) -> bool:
+        same_symbol = self.mt5.get_positions(position["symbol"])
+        opposite = "SELL" if position["type"] == "BUY" else "BUY"
+        if any(p["type"] == opposite and "HEDGE" in str(p.get("comment", "")) for p in same_symbol):
+            return False
+        if len(self.mt5.get_positions()) >= settings.MAX_POSITIONS or not self._check_rate_limit():
+            return False
+        volume = max(round(float(position["volume"]) * float(settings.HEDGE_VOLUME_RATIO), 2), 0.01)
+        point = self._get_point(position["symbol"])
+        distance = float(settings.HEDGE_TRIGGER_PIPS) * point
+        current = float(position["price_current"])
+        sl_price = current + distance if opposite == "SELL" else current - distance
+        tp_price = current - distance * 2 if opposite == "SELL" else current + distance * 2
+        hedge = self.mt5.send_market_order(
+            position["symbol"], opposite, volume, sl_price=sl_price, tp_price=tp_price, comment="Kronos HEDGE"
+        )
+        return bool(hedge and (hedge.get("demo") or hedge.get("retcode") == 10009))
 
     def _get_current_price(self, symbol: str, direction: str) -> Optional[float]:
         """Получить текущую цену."""
@@ -205,11 +296,11 @@ class OrderExecutor:
         sell_pos = sum(p["volume"] for p in existing_positions if p["type"] == "SELL")
 
         if order_request.direction == "BUY" and buy_pos > 0:
-            logger.debug(f"Avoiding duplicate BUY position for {order_request.symbol}")
+            logger.info(f"Skipping BUY for {order_request.symbol}: BUY position already exists")
             return None
         
         if order_request.direction == "SELL" and sell_pos > 0:
-            logger.debug(f"Avoiding duplicate SELL position for {order_request.symbol}")
+            logger.info(f"Skipping SELL for {order_request.symbol}: SELL position already exists")
             return None
 
         # Демонстрационный режим: это только имитация ордера, а не реальный MT5 ордер.

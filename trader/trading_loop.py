@@ -142,6 +142,17 @@ class TradingLoop:
                 logger.warning("No candle data available — skipping cycle")
                 return
 
+            true_range = __import__("pandas").concat(
+                [candles_df["high"] - candles_df["low"],
+                 (candles_df["high"] - candles_df["close"].shift(1)).abs(),
+                 (candles_df["low"] - candles_df["close"].shift(1)).abs()],
+                axis=1,
+            ).max(axis=1)
+            minimum_sl_distance = float(true_range.tail(14).mean()) * float(settings.MIN_SL_ATR_MULTIPLIER)
+            management = self.executor.manage_open_positions(self._current_symbol, minimum_sl_distance)
+            if management["trailed"] or management["hedged"]:
+                logger.info(f"[RISK] trailing={management['trailed']} hedges={management['hedged']}")
+
             # Сохраняем в БД
             saved = self.mt5.save_candles_to_db(candles_df, self._current_symbol, "H1")
 

@@ -110,6 +110,20 @@ class TestKronosPredictor(unittest.TestCase):
         self.assertGreater(result.target_price, df.iloc[-1]["close"])
         self.assertIn("10 candles", result.reason)
 
+    def test_prediction_stop_respects_atr_distance(self):
+        df = create_sample_candles(120, trend="bullish")
+        result = self.predictor.predict(df, "XAUUSD", horizon=10)
+        if result.signal == SignalType.BUY:
+            atr = (df["high"] - df["low"]).tail(14).mean()
+            self.assertGreaterEqual(df.iloc[-1]["close"] - result.stop_loss, atr * settings.MIN_SL_ATR_MULTIPLIER)
+
+    def test_kronos_target_is_forecast_distance(self):
+        df = create_sample_candles(120, trend="bullish")
+        result = self.predictor.predict(df, "XAUUSD", horizon=10)
+        if result.signal == SignalType.BUY:
+            self.assertGreater(result.take_profit, result.target_price - 0.01)
+            self.assertGreaterEqual(df.iloc[-1]["close"] - result.stop_loss, 0.0)
+
 
 class TestPredictionCache(unittest.TestCase):
     """Тестирование кэширования сигналов."""
@@ -173,6 +187,38 @@ class TestAIEngine(unittest.TestCase):
             self.assertTrue(signal.is_actionable)
         finally:
             settings.CONFIDENCE_THRESHOLD = original
+
+    def test_kronos_direction_cannot_be_overridden(self):
+        kronos = PredictionResult(
+            signal=SignalType.SELL,
+            confidence=0.90,
+            reason="Kronos bearish",
+            target_price=4300.0,
+            stop_loss=4380.0,
+            take_profit=4300.0,
+        )
+        tech = PredictionResult(signal=SignalType.BUY, confidence=0.99, reason="Technical bullish")
+        result = self.engine._combine_signals(tech, kronos, None)
+        self.assertEqual(result.signal, SignalType.SELL)
+
+    def test_kronos_hold_blocks_other_buy_signal(self):
+        kronos = PredictionResult(signal=SignalType.HOLD, confidence=0.8, reason="Kronos consolidation")
+        tech = PredictionResult(signal=SignalType.BUY, confidence=0.99, reason="Technical bullish")
+        result = self.engine._combine_signals(tech, kronos, None)
+        self.assertEqual(result.signal, SignalType.HOLD)
+
+    def test_ollama_prompt_contains_kronos_context(self):
+        indicators = TechnicalIndicators(symbol="XAUUSD", current_price=4300.0)
+        kronos = PredictionResult(
+            signal=SignalType.BUY,
+            confidence=0.8,
+            target_price=4400.0,
+            stop_loss=4260.0,
+            take_profit=4400.0,
+        )
+        prompt = self.engine._build_ollama_prompt("XAUUSD", indicators, [], kronos)
+        self.assertIn("ВЫВОД KRONOS", prompt)
+        self.assertIn("4400.0", prompt)
 
 
 if __name__ == "__main__":

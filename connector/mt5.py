@@ -252,6 +252,11 @@ class MT5Connector:
 
         result = []
         for pos in positions:
+            position_time = getattr(pos, "time_mfc", None)
+            if position_time is None:
+                position_time = getattr(pos, "time_msc", getattr(pos, "time", 0))
+            if position_time > 100_000_000_000:
+                position_time /= 1000
             result.append({
                 "ticket": pos.ticket,
                 "symbol": pos.symbol,
@@ -264,7 +269,7 @@ class MT5Connector:
                 "profit": pos.profit,
                 "swap": pos.swap,
                 "comment": pos.comment,
-                "time_mfc": datetime.fromtimestamp(pos.time_mfc),
+                "time_mfc": datetime.fromtimestamp(position_time),
             })
         return result
 
@@ -396,6 +401,33 @@ class MT5Connector:
             "price": result.price,
             "volume": result.volume,
         }
+
+    def modify_position(self, ticket: int, sl_price: float = None, tp_price: float = None) -> bool:
+        """Изменить защитные уровни открытой позиции."""
+        if settings.MT5_SIMULATION_MODE:
+            logger.info(f"[DEMO MODE] Would modify position {ticket}: SL={sl_price} TP={tp_price}")
+            return True
+        if not self.is_connected:
+            return False
+        position = next((p for p in self.get_positions() if p["ticket"] == ticket), None)
+        if position is None:
+            logger.warning(f"Position {ticket} not found for modification")
+            return False
+        symbol_info = mt5_module.symbol_info(position["symbol"])
+        if symbol_info is None:
+            return False
+        request = {
+            "action": mt5_module.TRADE_ACTION_SLTP,
+            "symbol": position["symbol"],
+            "position": ticket,
+            "sl": round(sl_price or 0.0, symbol_info.digits),
+            "tp": round(tp_price or 0.0, symbol_info.digits),
+        }
+        result = mt5_module.order_send(request)
+        if result is None or result.retcode != mt5_module.TRADE_RETCODE_DONE:
+            logger.warning(f"Position modification failed for {ticket}: {getattr(result, 'retcode', None)}")
+            return False
+        return True
 
     def close_all_positions(self, symbol: str = None) -> int:
         """Закрыть все позиции (опционально по символу)."""

@@ -156,22 +156,33 @@ class KronosPredictor:
         price = features.last_close
         vol = max(features.volatility, 0.001)
 
+        high = pd.to_numeric(df["high"], errors="coerce")
+        low = pd.to_numeric(df["low"], errors="coerce")
+        close = pd.to_numeric(df["close"], errors="coerce")
+        true_range = pd.concat(
+            [high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()],
+            axis=1,
+        ).max(axis=1)
+        atr = float(true_range.tail(14).mean()) if not true_range.empty else 0.0
+
         # Прогноз на N свечей вперёд: берём текущее направление и масштабируем его
         # на горизонт в свечах. Это делает модель реально "предсказывающей вперёд",
         # а не просто оценивающей текущий импульс.
         move_pct = 0.003 * horizon * (abs(direction_score) + 0.35)
-        sl_distance = price * vol * 1.5
-        tp_distance = price * vol * 2.5
+        sl_distance = max(
+            price * vol * 1.5,
+            atr * float(settings.MIN_SL_ATR_MULTIPLIER),
+        )
 
         if direction_score > 0.25:
             signal = SignalType.BUY
             target_price = price * (1.0 + move_pct)
-            stop_loss = price * (1.0 - (vol * 1.5))
+            stop_loss = price - sl_distance
             take_profit = target_price
         elif direction_score < -0.25:
             signal = SignalType.SELL
             target_price = price * (1.0 - move_pct)
-            stop_loss = price * (1.0 + (vol * 1.5))
+            stop_loss = price + sl_distance
             take_profit = target_price
         else:
             signal = SignalType.HOLD

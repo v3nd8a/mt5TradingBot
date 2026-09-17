@@ -240,9 +240,15 @@ class AIEngine:
 
     # ==================== Ollama Fallback ====================
 
-    def _analyze_with_ollama(self, symbol: str, indicators: TechnicalIndicators, candles: list[dict]) -> Optional[PredictionResult]:
+    def _analyze_with_ollama(
+        self,
+        symbol: str,
+        indicators: TechnicalIndicators,
+        candles: list[dict],
+        kronos: Optional[PredictionResult] = None,
+    ) -> Optional[PredictionResult]:
         """Анализ через локальную Ollama-модель."""
-        prompt = self._build_ollama_prompt(symbol, indicators, candles)
+        prompt = self._build_ollama_prompt(symbol, indicators, candles, kronos)
         payload = json.dumps({
             "model": settings.OLLAMA_MODEL,
             "prompt": prompt,
@@ -268,14 +274,34 @@ class AIEngine:
 
         return None
 
-    def _build_ollama_prompt(self, symbol: str, indicators: TechnicalIndicators, candles: list[dict]) -> str:
+    def _build_ollama_prompt(
+        self,
+        symbol: str,
+        indicators: TechnicalIndicators,
+        candles: list[dict],
+        kronos: Optional[PredictionResult] = None,
+    ) -> str:
         """Формируем промпт для Ollama/LLM анализа."""
         recent_candles = "\n".join([
             f"  Time: {c['time']}, O:{c['open']} H:{c['high']} L:{c['low']} C:{c['close']} V:{c['volume']}"
             for c in candles[-10:]
         ])
 
-        prompt = f"""Ты — профессиональный трейдер и аналитик. Проанализируй символ {symbol} на основе технических индикаторов:
+        kronos_context = (
+            f"Сигнал: {kronos.signal.value}; confidence: {kronos.confidence:.3f}; "
+            f"target: {kronos.target_price}; SL: {kronos.stop_loss}; TP: {kronos.take_profit}; "
+            f"обоснование: {kronos.reason}"
+            if kronos else "Kronos недоступен"
+        )
+        prompt = f"""Ты — подтверждающий аналитик для модели Kronos по символу {symbol}.
+    Kronos — главный источник направления и торговых уровней. Не меняй его BUY/SELL/HOLD.
+    Проверь его вывод техническими данными и верни тот же signal. Если Kronos дал HOLD,
+    верни HOLD. Не изобретай новые SL/TP: используй уровни Kronos или null.
+
+    ВЫВОД KRONOS:
+    {kronos_context}
+
+    ТЕХНИЧЕСКИЕ ИНДИКАТОРЫ:
 
 ТЕКУЩИЕ ДАННЫЕ (цены ~{indicators.current_price}):
 - SMA20: {indicators.sma_20:.4f}, SMA50: {indicators.sma_50:.4f}, SMA200: {indicators.sma_200:.4f}
@@ -383,7 +409,7 @@ class AIEngine:
                         "close": float(row["close"]),
                         "volume": int(row.get("volume", 0)),
                     })
-                gemini_result = self._analyze_with_ollama(symbol, indicators, recent_dict)
+                gemini_result = self._analyze_with_ollama(symbol, indicators, recent_dict, kronos_signal)
                 if gemini_result and gemini_result.signal != SignalType.HOLD:
                     gemini_signal = gemini_result
             except Exception as e:
@@ -394,6 +420,14 @@ class AIEngine:
             tech=tech_signal,
             kronos=kronos_signal,
             gemini=gemini_signal,
+        )
+        final_signal = self._apply_risk_levels(
+            final_signal,
+            candles_df,
+            symbol,
+            kronos_signal,
+            tech_signal,
+            gemini_signal,
         )
         
         # РЎРѕС…СЂР°РЅСЏРµРј РІ РєСЌС€
@@ -520,54 +554,91 @@ class AIEngine:
         kronos: Optional[PredictionResult],
         gemini: Optional[PredictionResult]
     ) -> PredictionResult:
-        """РљРѕРјР±РёРЅРёСЂРѕРІР°С‚СЊ СЃРёРіРЅР°Р»С‹ СЃ РІРµСЃР°РјРё."""
-        weights = {
-            "tech": 0.5,
-            "kronos": 0.25 if settings.USE_KRONOS_LOCAL else 0,
-            "gemini": 0.25 if settings.USE_OLLAMA else 0,
-        }
-        
-        total_weight = sum(weights.values())
-        if total_weight == 0:
-            return PredictionResult(signal=SignalType.HOLD, confidence=0.0, reason="No analysis methods available")
-            
-        score_sum = tech.confidence * (1 if tech.signal == SignalType.BUY else (-1 if tech.signal == SignalType.SELL else 0)) * weights["tech"]
-        all_reasons = [tech.reason]
-        
-        if kronos and kronos.signal != SignalType.HOLD:
-            score_sum += kronos.confidence * (1 if kronos.signal == SignalType.BUY else -1) * weights["kronos"]
-            all_reasons.append(kronos.reason)
-            
-        if gemini and gemini.signal != SignalType.HOLD:
-            score_sum += gemini.confidence * (1 if gemini.signal == SignalType.BUY else -1) * weights["gemini"]
-            all_reasons.append(gemini.reason)
+        """Kronos задает направление; остальные модели только подтверждают его."""
+        if not kronos:
+            return PredictionResult(signal=SignalType.HOLD, confidence=0.0, reason="Kronos unavailable")
 
-        final_score = score_sum / total_weight
-        final_confidence = min(max(abs(final_score), 0.0), 0.99)
+        if kronos.signal == SignalType.HOLD:
+            return PredictionResult(
+                signal=SignalType.HOLD,
+                confidence=kronos.confidence,
+                reason="Kronos HOLD; confirmations cannot override Kronos",
+            )
 
-        # Жёсткий gate по конфигу: если threshold высокий, даже сильный сигнал
-        # считается HOLD до тех пор, пока он не достигнет порога.
+        confirmations = [item for item in (tech, gemini) if item and item.signal != SignalType.HOLD]
+        aligned = sum(item.confidence for item in confirmations if item.signal == kronos.signal)
+        opposed = sum(item.confidence for item in confirmations if item.signal != kronos.signal)
+        confirmation_score = (aligned - opposed) / max(len(confirmations), 1)
+        final_confidence = min(max(0.7 * kronos.confidence + 0.3 * max(confirmation_score, 0.0), 0.0), 0.99)
+
         threshold = float(getattr(settings, "CONFIDENCE_THRESHOLD", 0.65))
         if final_confidence < threshold:
             return PredictionResult(
                 signal=SignalType.HOLD,
                 confidence=final_confidence,
-                reason=f"Insufficient confidence ({final_confidence:.2f} < {threshold:.2f}); " + "; ".join(all_reasons[:3]),
+                reason=f"Kronos direction below confidence threshold ({final_confidence:.2f} < {threshold:.2f})",
             )
-
-        if abs(final_score) < 0.3:
-            return PredictionResult(
-                signal=SignalType.HOLD,
-                confidence=final_confidence,
-                reason="Mixed signals — no clear direction; " + "; ".join(all_reasons[:3]),
-            )
-
-        signal = SignalType.BUY if final_score > 0 else SignalType.SELL
 
         return PredictionResult(
-            signal=signal,
+            signal=kronos.signal,
             confidence=final_confidence,
-            reason="; ".join(all_reasons[:3]),
+            reason="Kronos primary; confirmations: " + "; ".join(item.reason for item in confirmations[:2]),
+        )
+
+    def _apply_risk_levels(
+        self,
+        signal: PredictionResult,
+        candles_df: pd.DataFrame,
+        symbol: str,
+        *sources: Optional[PredictionResult],
+    ) -> PredictionResult:
+        """Сохранить уровни источника и не допустить слишком тесный SL."""
+        if signal.signal == SignalType.HOLD:
+            return signal
+
+        price = float(candles_df["close"].iloc[-1])
+        atr = TechnicalAnalysis._atr(candles_df, 14)
+        minimum_sl_distance = max(
+            atr * float(settings.MIN_SL_ATR_MULTIPLIER),
+            price * 0.0005,
+        )
+        direction = 1 if signal.signal == SignalType.BUY else -1
+        source = next((item for item in sources if item and item.signal == signal.signal), None)
+
+        levels = source.target_price if source else None
+        if isinstance(levels, dict):
+            target = levels.get("target")
+            take_profit = levels.get("tp")
+            stop_loss = levels.get("sl")
+        else:
+            target = levels
+            take_profit = source.take_profit if source else None
+            stop_loss = source.stop_loss if source else None
+
+        if not isinstance(target, (int, float)):
+            target = None
+        if not isinstance(take_profit, (int, float)):
+            take_profit = target
+        if not isinstance(stop_loss, (int, float)):
+            stop_loss = None
+
+        if target is None or (target - price) * direction <= 0:
+            target = price + direction * max(
+                2.0 * atr,
+                minimum_sl_distance * float(settings.FORECAST_RISK_REWARD),
+            )
+        if take_profit is None or (take_profit - price) * direction <= 0:
+            take_profit = target
+        if stop_loss is None or (price - stop_loss) * direction < minimum_sl_distance:
+            stop_loss = price - direction * minimum_sl_distance
+
+        return PredictionResult(
+            signal=signal.signal,
+            confidence=signal.confidence,
+            reason=signal.reason,
+            target_price=round(float(target), 5),
+            stop_loss=round(float(stop_loss), 5),
+            take_profit=round(float(take_profit), 5),
         )
 
     def clear_cache(self):

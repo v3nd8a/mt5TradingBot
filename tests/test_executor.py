@@ -81,6 +81,40 @@ class TestOrderExecutor(unittest.TestCase):
         order = self.executor.plan_order(signal, "EURUSD")
         self.assertIsNone(order)
 
+    def test_plan_order_uses_forecast_distance(self):
+        signal = PredictionResult(
+            signal=SignalType.BUY,
+            confidence=0.80,
+            target_price=1.1200,
+            reason="Forecast target",
+        )
+        with unittest.mock.patch.object(self.executor, "_get_current_price", return_value=1.1000):
+            order = self.executor.plan_order(signal, "EURUSD")
+        self.assertEqual(order.tp_price, 1.12)
+        self.assertEqual(order.sl_price, 1.09)
+
+    def test_trailing_stop_moves_only_in_profit(self):
+        position = {
+            "ticket": 1, "symbol": "EURUSD", "type": "BUY", "volume": 0.1,
+            "price_open": 1.1000, "price_current": 1.1100, "sl": 1.1010, "tp": 1.1300,
+        }
+        self.mock_mt5.get_positions.return_value = [position]
+        with unittest.mock.patch("MetaTrader5.symbol_info", return_value=unittest.mock.Mock(point=0.0001)):
+            result = self.executor.manage_open_positions("EURUSD")
+        self.assertEqual(result["trailed"], 1)
+        self.mock_mt5.modify_position.assert_called_once()
+
+    def test_existing_tight_stop_is_widened(self):
+        position = {
+            "ticket": 2, "symbol": "XAUUSD", "type": "BUY", "volume": 0.1,
+            "price_open": 4340.0, "price_current": 4348.0, "sl": 4347.0, "tp": 4380.0,
+        }
+        self.mock_mt5.get_positions.return_value = [position]
+        with unittest.mock.patch("MetaTrader5.symbol_info", return_value=unittest.mock.Mock(point=0.01)):
+            result = self.executor.manage_open_positions("XAUUSD", minimum_sl_distance=29.5)
+        self.assertEqual(result["trailed"], 1)
+        self.mock_mt5.modify_position.assert_called_once_with(2, 4318.5, 4380.0)
+
     def test_avoid_duplicate_position(self):
         req = OrderRequest(
             symbol="EURUSD",
