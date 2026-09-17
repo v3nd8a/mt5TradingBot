@@ -122,7 +122,13 @@ class OrderExecutor:
         # Расчёт SL/TP от цены через ATR или фиксированные пипсы
         sl_pips = settings.DEFAULT_SL_PIPS
         tp_pips = settings.DEFAULT_TP_PIPS
-        point = 0.0001 if "JPY" not in symbol else 0.01
+        import MetaTrader5 as mt5_module
+        symbol_info = mt5_module.symbol_info(symbol)
+        point = (
+            float(symbol_info.point)
+            if symbol_info is not None and symbol_info.point > 0
+            else (0.01 if "JPY" in symbol else 0.0001)
+        )
 
         direction = "BUY" if signal.signal == SignalType.BUY else "SELL"
         
@@ -206,9 +212,12 @@ class OrderExecutor:
             logger.debug(f"Avoiding duplicate SELL position for {order_request.symbol}")
             return None
 
-        # Проверка что MT5 подключён
-        if settings.MT5_DEMO_MODE:
-            logger.info(f"[DEMO MODE] Would execute: {order_request.direction} {order_request.symbol} v={order_request.volume:.2f}")
+        # Демонстрационный режим: это только имитация ордера, а не реальный MT5 ордер.
+        if settings.MT5_SIMULATION_MODE:
+            logger.info(
+                f"[DEMO MODE] Simulated order only: {order_request.direction} {order_request.symbol} "
+                f"v={order_request.volume:.2f}. No real MT5 trade is created."
+            )
             return {"demo": True, "order": order_request.__dict__}
 
         # Отправляем ордер
@@ -230,7 +239,7 @@ class OrderExecutor:
 
     def close_position(self, ticket: int = None, symbol: str = None) -> bool:
         """Закрыть позицию."""
-        if settings.MT5_DEMO_MODE:
+        if settings.MT5_SIMULATION_MODE:
             logger.info(f"[DEMO MODE] Would close position ticket={ticket or symbol or 'ALL'}")
             return True
         

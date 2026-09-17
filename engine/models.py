@@ -5,6 +5,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
+from config.settings import settings
+
 
 class SignalType(str, Enum):
     BUY = "BUY"
@@ -24,7 +26,8 @@ class PredictionResult:
     
     @property
     def is_actionable(self) -> bool:
-        return self.signal != SignalType.HOLD and self.confidence >= 0.65
+        threshold = float(getattr(settings, "CONFIDENCE_THRESHOLD", 0.65))
+        return self.signal != SignalType.HOLD and self.confidence >= max(0.0, threshold)
 
 
 @dataclass 

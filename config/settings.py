@@ -15,6 +15,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 ENV_PATH = BASE_DIR / ".env"
 load_dotenv(dotenv_path=ENV_PATH)
 
+# Единственный источник истины для порога принятия сигнала.
+# Меняете эту строку — меняется порог по всему проекту.
+DEFAULT_CONFIDENCE_THRESHOLD = 0.40
+
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -30,8 +34,10 @@ try:
         MT5_DEMO_PASSWORD: str = ""
         MT5_DEMO_SERVER: str = "AMarkets-Demo"
 
-        # Демо режим (true = только чтение сигналов, без ордеров)
-        MT5_DEMO_MODE: bool = False
+        # Аккаунт по умолчанию — AMarkets Demo.
+        # Это не отключает реальные заявки внутри демо-счёта.
+        MT5_DEMO_MODE: bool = True
+        MT5_SIMULATION_MODE: bool = False
 
         # ==================== Ollama / AI ====================
         OLLAMA_BASE_URL: str = "http://localhost:11434"
@@ -44,6 +50,7 @@ try:
         GEMINI_MODEL: str = "gemini-2.5-flash"
         USE_KRONOS_LOCAL: bool = True  # локальная модель Kronos
         USE_GEMINI_FALLBACK: bool = False  # deprecated — используем Ollama вместо этого
+        KRONOS_FORECAST_HORIZON: int = 10  # горизонта прогноза в свечах (10–15 обычно)
 
         # ==================== Database ====================
         DB_DSN: str = "postgresql+psycopg2://postgres:password@localhost:5432/trading_db"
@@ -52,7 +59,7 @@ try:
         DEFAULT_SYMBOL: str = "XAUUSD"
         TICK_INTERVAL_SEC: int = 5          # интервал опроса тиков
         ANALYSIS_INTERVAL_MIN: int = 15     # интервал анализа (минуты)
-        CONFIDENCE_THRESHOLD: float = 0.55  # мин. confidence для сигнала
+        CONFIDENCE_THRESHOLD: float = DEFAULT_CONFIDENCE_THRESHOLD  # мин. confidence для сигнала
         MAX_POSITIONS: int = 3               # макс. открытых позиций
         
         # Risk management
@@ -96,7 +103,8 @@ except ImportError:
         MT5_DEMO_LOGIN: str = ""
         MT5_DEMO_PASSWORD: str = ""
         MT5_DEMO_SERVER: str = "AMarkets-Demo"
-        MT5_DEMO_MODE: bool = False
+        MT5_DEMO_MODE: bool = True
+        MT5_SIMULATION_MODE: bool = False
 
         # ==================== Ollama / AI ====================
         OLLAMA_BASE_URL: str = "http://localhost:11434"
@@ -109,6 +117,7 @@ except ImportError:
         GEMINI_MODEL: str = "gemini-2.0-flash"
         USE_KRONOS_LOCAL: bool = True
         USE_GEMINI_FALLBACK: bool = False
+        KRONOS_FORECAST_HORIZON: int = 10
 
         # ==================== Database ====================
         DB_DSN: str = "postgresql+psycopg2://postgres:password@localhost:5432/trading_db"
@@ -117,7 +126,7 @@ except ImportError:
         DEFAULT_SYMBOL: str = "EURUSD"
         TICK_INTERVAL_SEC: int = 5
         ANALYSIS_INTERVAL_MIN: int = 15
-        CONFIDENCE_THRESHOLD: float = 0.65
+        CONFIDENCE_THRESHOLD: float = DEFAULT_CONFIDENCE_THRESHOLD
         MAX_POSITIONS: int = 3
 
         # Risk management

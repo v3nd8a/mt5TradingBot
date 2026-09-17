@@ -49,7 +49,9 @@ class TradingLoop:
         logger.info(f"Config: DEFAULT_SYMBOL={settings.DEFAULT_SYMBOL}")
         logger.info(f"Config: CONFIDENCE_THRESHOLD={settings.CONFIDENCE_THRESHOLD}")
         logger.info(f"Config: ANALYSIS_INTERVAL={settings.ANALYSIS_INTERVAL_MIN}min")
-        logger.info(f"Mode: {'DEMO' if settings.MT5_DEMO_MODE else 'REAL'}")
+        account_mode = "DEMO" if settings.MT5_DEMO_MODE else "REAL"
+        execution_mode = "SIMULATION" if settings.MT5_SIMULATION_MODE else "MT5 ORDERS"
+        logger.info(f"Account: {account_mode} | Execution: {execution_mode}")
         logger.info("=" * 60)
 
         # Создаём директорию логов
@@ -165,7 +167,10 @@ class TradingLoop:
                     
                     if result:
                         self._orders_executed += 1
-                        logger.info(f"[ORDER EXECUTED] {order_request.direction} {order_request.volume:.2f} @ current price")
+                        if settings.MT5_SIMULATION_MODE:
+                            logger.info(f"[DEMO ORDER SIMULATED] {order_request.direction} {order_request.volume:.2f} @ current price")
+                        else:
+                            logger.info(f"[ORDER EXECUTED] {order_request.direction} {order_request.volume:.2f} @ current price")
                         
                         # Сохраняем сделку в БД
                         await self._save_trade(signal, order_request)

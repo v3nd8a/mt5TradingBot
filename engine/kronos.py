@@ -46,7 +46,15 @@ class KronosDataPreprocessor:
         Returns:
             KronosFeatures или None если данных недостаточно
         """
-        if df is None or df.empty or len(df) < 20:
+        required_columns = {"open", "high", "low", "close"}
+        missing_columns = required_columns.difference(df.columns) if df is not None else required_columns
+        if df is None or df.empty or missing_columns:
+            logger.warning(
+                f"Kronos: missing required candle columns: {sorted(missing_columns)}"
+            )
+            return None
+
+        if len(df) < window_size:
             logger.warning(f"Kronos: Not enough candles for preprocessing ({len(df) if df is not None else 0})")
             return None
 
@@ -58,6 +66,10 @@ class KronosDataPreprocessor:
         lows = data["low"].values.astype(float)
         closes = data["close"].values.astype(float)
         volumes = data["volume"].values.astype(float) if "volume" in data.columns else np.zeros(len(data))
+
+        if not all(np.isfinite(values).all() for values in (opens, highs, lows, closes, volumes)):
+            logger.warning("Kronos: candle data contains non-finite OHLCV values")
+            return None
 
         # Защита от нулевых значений open
         opens_safe = np.where(opens == 0, 1e-6, opens)
@@ -120,12 +132,13 @@ class KronosPredictor:
         else:
             logger.info("Kronos: native vectorized K-line foundation engine active")
 
-    def predict(self, df: pd.DataFrame, symbol: str = "") -> Optional[PredictionResult]:
+    def predict(self, df: pd.DataFrame, symbol: str = "", horizon: Optional[int] = None) -> Optional[PredictionResult]:
         """Сгенерировать прогноз цены на основе свечей MT5.
 
         Args:
             df: DataFrame со свечами
             symbol: Торговый инструмент
+            horizon: Горизонт прогноза в свечах, например 10 или 15
 
         Returns:
             PredictionResult с сигналом (BUY/SELL/HOLD), confidence, SL и TP
@@ -134,25 +147,31 @@ class KronosPredictor:
         if features is None:
             return None
 
+        horizon = int(horizon or settings.KRONOS_FORECAST_HORIZON)
+        horizon = max(1, min(30, horizon))
+
         # Анализ динамики K-линий
         direction_score, confidence, reasons = self._evaluate_features(features)
 
         price = features.last_close
         vol = max(features.volatility, 0.001)
 
-        # Расчет Stop-Loss и Take-Profit на основе волатильности свечей (Kronos dynamic range)
+        # Прогноз на N свечей вперёд: берём текущее направление и масштабируем его
+        # на горизонт в свечах. Это делает модель реально "предсказывающей вперёд",
+        # а не просто оценивающей текущий импульс.
+        move_pct = 0.003 * horizon * (abs(direction_score) + 0.35)
         sl_distance = price * vol * 1.5
         tp_distance = price * vol * 2.5
 
         if direction_score > 0.25:
             signal = SignalType.BUY
-            target_price = price + tp_distance
-            stop_loss = price - sl_distance
+            target_price = price * (1.0 + move_pct)
+            stop_loss = price * (1.0 - (vol * 1.5))
             take_profit = target_price
         elif direction_score < -0.25:
             signal = SignalType.SELL
-            target_price = price - tp_distance
-            stop_loss = price + sl_distance
+            target_price = price * (1.0 - move_pct)
+            stop_loss = price * (1.0 + (vol * 1.5))
             take_profit = target_price
         else:
             signal = SignalType.HOLD
@@ -161,7 +180,8 @@ class KronosPredictor:
             take_profit = None
 
         digits = 5 if "JPY" not in symbol else 3
-        reason_text = "Kronos AI: " + (", ".join(reasons) if reasons else "consolidation pattern")
+        horizon_text = f"forecast for {horizon} candles ahead"
+        reason_text = "Kronos AI: " + (", ".join(reasons) if reasons else "consolidation pattern") + f" | {horizon_text}"
 
         return PredictionResult(
             signal=signal,

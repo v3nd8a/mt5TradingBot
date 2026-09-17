@@ -99,9 +99,9 @@ class TestOrderExecutor(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_execute_in_demo_mode(self):
-        original_demo = settings.MT5_DEMO_MODE
+        original_simulation = settings.MT5_SIMULATION_MODE
         try:
-            settings.MT5_DEMO_MODE = True
+            settings.MT5_SIMULATION_MODE = True
             req = OrderRequest(
                 symbol="EURUSD",
                 direction="BUY",
@@ -115,7 +115,7 @@ class TestOrderExecutor(unittest.TestCase):
             self.assertIsNotNone(res)
             self.assertTrue(res.get("demo", False))
         finally:
-            settings.MT5_DEMO_MODE = original_demo
+            settings.MT5_SIMULATION_MODE = original_simulation
 
 
 if __name__ == "__main__":

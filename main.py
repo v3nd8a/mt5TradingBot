@@ -24,7 +24,8 @@ from bot.bot import TelegramBotHandler
 
 def parse_args():
     parser = argparse.ArgumentParser(description="TradingBot 'Крон' — AI-powered MT5 trading bot")
-    parser.add_argument("--demo", action="store_true", help="Demo mode (no real orders)")
+    parser.add_argument("--demo", action="store_true", help="Simulation mode (no MT5 orders)")
+    parser.add_argument("--real", action="store_true", help="Force real MT5 account instead of AMarkets demo")
     parser.add_argument("--bot", action="store_true", help="Start Telegram bot alongside trading")
     parser.add_argument("-s", "--symbol", type=str, default=None, help="Symbol to trade (default: EURUSD)")
     parser.add_argument("--analyze", type=str, help="Analyze symbol and exit (no trading loop)")
@@ -38,9 +39,13 @@ async def main():
     # 1. Setup logging
     root_logger = setup_logging()
 
-    # 2. Demo mode override
-    if args.demo:
+    # 2. Default account is AMarkets Demo. Simulation is a separate option.
+    if args.real:
+        settings.MT5_DEMO_MODE = False
+    else:
         settings.MT5_DEMO_MODE = True
+
+    settings.MT5_SIMULATION_MODE = args.demo
 
     # 3. Symbol override
     if args.symbol:

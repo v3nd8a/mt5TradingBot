@@ -4,6 +4,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
+from config.settings import settings
 from engine.models import SignalType, PredictionResult, TechnicalIndicators
 from engine.ai import TechnicalAnalysis, PredictionCache, AIEngine
 from engine.kronos import KronosDataPreprocessor, KronosPredictor, get_kronos_predictor
@@ -101,6 +102,14 @@ class TestKronosPredictor(unittest.TestCase):
             self.assertGreater(result.stop_loss, df.iloc[-1]["close"])
             self.assertLess(result.take_profit, df.iloc[-1]["close"])
 
+    def test_prediction_with_horizon(self):
+        df = create_sample_candles(120, trend="bullish")
+        result = self.predictor.predict(df, "EURUSD", horizon=10)
+        self.assertIsNotNone(result)
+        self.assertIsNotNone(result.target_price)
+        self.assertGreater(result.target_price, df.iloc[-1]["close"])
+        self.assertIn("10 candles", result.reason)
+
 
 class TestPredictionCache(unittest.TestCase):
     """Тестирование кэширования сигналов."""
@@ -143,6 +152,27 @@ class TestAIEngine(unittest.TestCase):
         self.assertIn(result.signal, [SignalType.BUY, SignalType.SELL, SignalType.HOLD])
         self.assertTrue(0.0 <= result.confidence <= 1.0)
         self.assertTrue(len(result.reason) > 0)
+
+    def test_threshold_hard_gate(self):
+        original = settings.CONFIDENCE_THRESHOLD
+        settings.CONFIDENCE_THRESHOLD = 0.9
+        try:
+            weak_tech = PredictionResult(signal=SignalType.BUY, confidence=0.4, reason="weak")
+            weak_kronos = PredictionResult(signal=SignalType.BUY, confidence=0.45, reason="Kronos AI: bullish | forecast for 10 candles ahead")
+            result = self.engine._combine_signals(weak_tech, weak_kronos, None)
+            self.assertEqual(result.signal, SignalType.HOLD)
+            self.assertLess(result.confidence, settings.CONFIDENCE_THRESHOLD)
+        finally:
+            settings.CONFIDENCE_THRESHOLD = original
+
+    def test_threshold_zero_allows_any_signal(self):
+        original = settings.CONFIDENCE_THRESHOLD
+        settings.CONFIDENCE_THRESHOLD = 0.0
+        try:
+            signal = PredictionResult(signal=SignalType.BUY, confidence=0.55, reason="ready")
+            self.assertTrue(signal.is_actionable)
+        finally:
+            settings.CONFIDENCE_THRESHOLD = original
 
 
 if __name__ == "__main__":

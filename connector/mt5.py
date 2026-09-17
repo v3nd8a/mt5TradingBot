@@ -301,7 +301,7 @@ class MT5Connector:
         deviation: int = 20,
     ) -> Optional[dict]:
         """Отправить рыночный ордер."""
-        if settings.MT5_DEMO_MODE:
+        if settings.MT5_SIMULATION_MODE:
             logger.info(f"[DEMO MODE] Would send {direction} order for {symbol} vol={volume}")
             return {"demo": True, "action": direction, "symbol": symbol, "volume": volume}
 
@@ -309,20 +309,47 @@ class MT5Connector:
             logger.error("Cannot send order: MT5 not connected")
             return None
 
+        symbol_info = mt5_module.symbol_info(symbol)
+        if symbol_info is None:
+            logger.error(
+                f"Cannot get symbol info for {symbol}; "
+                f"MT5 error={mt5_module.last_error()}"
+            )
+            return None
+
+        if not symbol_info.visible and not mt5_module.symbol_select(symbol, True):
+            logger.error(
+                f"Symbol {symbol} is not visible and could not be selected; "
+                f"MT5 error={mt5_module.last_error()}"
+            )
+            return None
+
         # Формируем заявку
         if direction.upper() == "BUY":
-            price = mt5_module.symbol_info(symbol).ask
+            price = symbol_info.ask
             action = mt5_module.ORDER_TYPE_BUY
         else:
-            price = mt5_module.symbol_info(symbol).bid
+            price = symbol_info.bid
             action = mt5_module.ORDER_TYPE_SELL
 
         if price is None or price == 0:
             logger.error(f"Cannot get valid price for {symbol}")
             return None
 
-        point = mt5_module.symbol_info(symbol).point
-        digits = mt5_module.symbol_info(symbol).digits
+        digits = symbol_info.digits
+
+        # Брокер задаёт допустимые режимы исполнения для каждого символа.
+        filling_flags = int(getattr(symbol_info, "filling_mode", 0))
+        if filling_flags & 2:
+            filling_mode = mt5_module.ORDER_FILLING_IOC
+        elif filling_flags & 1:
+            filling_mode = mt5_module.ORDER_FILLING_FOK
+        else:
+            filling_mode = mt5_module.ORDER_FILLING_RETURN
+
+        # Some brokers reject punctuation or long comments even within MT5's
+        # nominal limit. Keep the trade comment deliberately conservative.
+        safe_comment = f"Kronos {direction.upper()} {symbol}"[:20]
 
         request = {
             "action": mt5_module.TRADE_ACTION_DEAL,
@@ -332,9 +359,9 @@ class MT5Connector:
             "price": round(price, digits),
             "deviation": deviation,
             "magic": 234567,
-            "comment": comment or "TradingBot Kronos",
+            "comment": safe_comment or "TradingBot Kronos",
             "type_time": mt5_module.ORDER_TIME_GTC,
-            "type_filling": mt5_module.ORDER_FILLING_IOC,
+            "type_filling": filling_mode,
         }
 
         # Добавляем SL/TP
@@ -346,7 +373,10 @@ class MT5Connector:
         # Отправляем
         result = mt5_module.order_send(request)
         if result is None:
-            logger.error(f"order_send returned None for {direction} {symbol}")
+            logger.error(
+                f"order_send returned None for {direction} {symbol}; "
+                f"MT5 error={mt5_module.last_error()} request={request}"
+            )
             return None
 
         if result.retcode != mt5_module.TRADE_RETCODE_DONE:
@@ -369,7 +399,7 @@ class MT5Connector:
 
     def close_all_positions(self, symbol: str = None) -> int:
         """Закрыть все позиции (опционально по символу)."""
-        if settings.MT5_DEMO_MODE:
+        if settings.MT5_SIMULATION_MODE:
             logger.info(f"[DEMO MODE] Would close all positions for {symbol or 'ALL'}")
             return 0
 

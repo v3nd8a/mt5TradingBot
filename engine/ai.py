@@ -269,15 +269,15 @@ class AIEngine:
         return None
 
     def _build_ollama_prompt(self, symbol: str, indicators: TechnicalIndicators, candles: list[dict]) -> str:
-        """РЎС„РѕСЂРјРёСЂРѕРІР°С‚СЊ РїСЂРѕРјРїС‚ РґР»СЏ Gemini."""
+        """Формируем промпт для Ollama/LLM анализа."""
         recent_candles = "\n".join([
             f"  Time: {c['time']}, O:{c['open']} H:{c['high']} L:{c['low']} C:{c['close']} V:{c['volume']}"
             for c in candles[-10:]
         ])
-        
-        prompt = f"""РўС‹ вЂ” РїСЂРѕС„РµСЃСЃРёРѕРЅР°Р»СЊРЅС‹Р№ С‚СЂРµР№РґРµСЂ Рё Р°РЅР°Р»РёС‚РёРє. РџСЂРѕР°РЅР°Р»РёР·РёСЂСѓР№ СЃРёРјРІРѕР» {symbol} РЅР° РѕСЃРЅРѕРІРµ С‚РµС…РЅРёС‡РµСЃРєРёС… РёРЅРґРёРєР°С‚РѕСЂРѕРІ:
 
-РўР•РљРЈР©РР• Р”РђРќРќР«Р• (С†РµРЅС‹ ~{indicators.current_price}):
+        prompt = f"""Ты — профессиональный трейдер и аналитик. Проанализируй символ {symbol} на основе технических индикаторов:
+
+ТЕКУЩИЕ ДАННЫЕ (цены ~{indicators.current_price}):
 - SMA20: {indicators.sma_20:.4f}, SMA50: {indicators.sma_50:.4f}, SMA200: {indicators.sma_200:.4f}
 - EMA12: {indicators.ema_12:.4f}, EMA26: {indicators.ema_26:.4f}
 - RSI(14): {indicators.rsi_14:.2f} ({indicators.rsi_signal})
@@ -287,24 +287,24 @@ class AIEngine:
 - Stoch: K={indicators.stoch_k:.1f}, D={indicators.stoch_d:.1f} ({indicators.stoch_signal})
 - Volume Ratio: {indicators.volume_ratio:.2f}
 
-РџРћРЎР›Р•Р”РќРР• 10 РЎР’Р•Р§Р•Р™:
+ПОСЛЕДНИЕ 10 СВЕЧЕЙ:
 {recent_candles}
 
-Р’РµСЂРЅРё РўРћР›Р¬РљРћ JSON Р±РµР· С‚РµРєСЃС‚Р°:
+Верни ТОЛЬКО JSON без текста:
 {{
     "signal": "BUY" | "SELL" | "HOLD",
     "confidence": 0.0-1.0,
-    "reason": "РєСЂР°С‚РєРѕРµ РѕР±РѕСЃРЅРѕРІР°РЅРёРµ (РґРѕ 50 СЃРёРјРІРѕР»РѕРІ)",
-    "target_price": С†РµРЅР°_С†РµР»Рё РёР»Рё null,
-    "stop_loss": С†РµРЅР°_SL РёР»Рё null,
-    "take_profit": С†РµРЅР°_TP РёР»Рё null
+    "reason": "краткое обоснование (до 50 символов)",
+    "target_price": число_цели или null,
+    "stop_loss": число_SL или null,
+    "take_profit": число_TP или null
 }}
 """
         return prompt
 
     def _parse_ollama_response(self, text: str) -> PredictionResult:
-        """РџР°СЂСЃРёС‚СЊ РѕС‚РІРµС‚ Gemini РІ PredictionResult."""
-        # РР·РІР»РµРєР°РµРј JSON РёР· С‚РµРєСЃС‚Р°
+        """Парсить ответ Ollama в PredictionResult."""
+        # Извлекаем JSON из текста
         start = text.find("{")
         end = text.rfind("}") + 1
         
@@ -543,17 +543,26 @@ class AIEngine:
             all_reasons.append(gemini.reason)
 
         final_score = score_sum / total_weight
-        
-        # РћРїСЂРµРґРµР»СЏРµРј СЃРёРіРЅР°Р»
+        final_confidence = min(max(abs(final_score), 0.0), 0.99)
+
+        # Жёсткий gate по конфигу: если threshold высокий, даже сильный сигнал
+        # считается HOLD до тех пор, пока он не достигнет порога.
+        threshold = float(getattr(settings, "CONFIDENCE_THRESHOLD", 0.65))
+        if final_confidence < threshold:
+            return PredictionResult(
+                signal=SignalType.HOLD,
+                confidence=final_confidence,
+                reason=f"Insufficient confidence ({final_confidence:.2f} < {threshold:.2f}); " + "; ".join(all_reasons[:3]),
+            )
+
         if abs(final_score) < 0.3:
             return PredictionResult(
                 signal=SignalType.HOLD,
-                confidence=max(abs(final_score), 0.1),
-                reason="Mixed signals вЂ” no clear direction",
+                confidence=final_confidence,
+                reason="Mixed signals — no clear direction; " + "; ".join(all_reasons[:3]),
             )
 
         signal = SignalType.BUY if final_score > 0 else SignalType.SELL
-        final_confidence = min(max(abs(final_score), 0.35), 0.99)
 
         return PredictionResult(
             signal=signal,

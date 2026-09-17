@@ -12,6 +12,12 @@ class TestSettings(unittest.TestCase):
         self.assertTrue(settings.MT5_PASSWORD, "MT5_PASSWORD must be set")
         self.assertTrue(settings.MT5_SERVER, "MT5_SERVER must be set")
 
+    def test_demo_account_is_default(self):
+        self.assertEqual(str(settings.MT5_DEMO_LOGIN), "7872510")
+        self.assertEqual(settings.MT5_DEMO_SERVER, "AMarkets-Demo")
+        self.assertTrue(settings.MT5_DEMO_MODE)
+        self.assertFalse(settings.MT5_SIMULATION_MODE)
+
     def test_gemini_key_present(self):
         self.assertTrue(settings.GEMINI_API_KEY, "GEMINI_API_KEY must be set")
 
