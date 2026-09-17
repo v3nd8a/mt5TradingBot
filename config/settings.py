@@ -33,11 +33,17 @@ try:
         # Демо режим (true = только чтение сигналов, без ордеров)
         MT5_DEMO_MODE: bool = False
 
-        # ==================== Gemini / AI ====================
+        # ==================== Ollama / AI ====================
+        OLLAMA_BASE_URL: str = "http://localhost:11434"
+        OLLAMA_MODEL: str = "qwen2.5-coder:7b-instruct"
+        USE_OLLAMA: bool = True  # использовать Ollama для анализа
+        OLLAMA_TIMEOUT: int = 60  # таймаут запроса к Ollama (сек)
+
+        # ==================== Gemini / AI (deprecated, kept for compat) ====================
         GEMINI_API_KEY: str = ""
         GEMINI_MODEL: str = "gemini-2.5-flash"
         USE_KRONOS_LOCAL: bool = True  # локальная модель Kronos
-        USE_GEMINI_FALLBACK: bool = True  # fallback на Gemini если Kronos упал
+        USE_GEMINI_FALLBACK: bool = False  # deprecated — используем Ollama вместо этого
 
         # ==================== Database ====================
         DB_DSN: str = "postgresql+psycopg2://postgres:password@localhost:5432/trading_db"
@@ -46,12 +52,12 @@ try:
         DEFAULT_SYMBOL: str = "XAUUSD"
         TICK_INTERVAL_SEC: int = 5          # интервал опроса тиков
         ANALYSIS_INTERVAL_MIN: int = 15     # интервал анализа (минуты)
-        CONFIDENCE_THRESHOLD: float = 0.65  # мин. confidence для сигнала
+        CONFIDENCE_THRESHOLD: float = 0.55  # мин. confidence для сигнала
         MAX_POSITIONS: int = 3               # макс. открытых позиций
         
         # Risk management
         RISK_PER_TRADE_PCT: float = 1.0      # % депозита на сделку
-        DEFAULT_SL_PIPS: float = 50.0        # Stop Loss в пипсах
+        DEFAULT_SL_PIPS: float = 100.0        # Stop Loss в пипсах
         DEFAULT_TP_PIPS: float = 100.0       # Take Profit в пипсах
         MAX_ORDERS_PER_MIN: int = 3           # rate limiting
         
@@ -92,11 +98,17 @@ except ImportError:
         MT5_DEMO_SERVER: str = "AMarkets-Demo"
         MT5_DEMO_MODE: bool = False
 
-        # ==================== Gemini / AI ====================
+        # ==================== Ollama / AI ====================
+        OLLAMA_BASE_URL: str = "http://localhost:11434"
+        OLLAMA_MODEL: str = "qwen2.5-coder:7b-instruct"
+        USE_OLLAMA: bool = True
+        OLLAMA_TIMEOUT: int = 60
+
+        # ==================== Gemini / AI (deprecated, kept for compat) ====================
         GEMINI_API_KEY: str = ""
         GEMINI_MODEL: str = "gemini-2.0-flash"
         USE_KRONOS_LOCAL: bool = True
-        USE_GEMINI_FALLBACK: bool = True
+        USE_GEMINI_FALLBACK: bool = False
 
         # ==================== Database ====================
         DB_DSN: str = "postgresql+psycopg2://postgres:password@localhost:5432/trading_db"

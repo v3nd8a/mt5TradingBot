@@ -9,6 +9,9 @@
 import logging
 import time
 import math
+import json
+import urllib.error
+import urllib.request
 from datetime import datetime
 from collections import OrderedDict
 from typing import Optional
@@ -235,36 +238,37 @@ class AIEngine:
             logger.error(f"Kronos prediction error: {e}")
             return None
 
-    # ==================== Gemini Fallback ====================
+    # ==================== Ollama Fallback ====================
 
-    def _analyze_with_gemini(self, symbol: str, indicators: TechnicalIndicators, candles: list[dict]) -> Optional[PredictionResult]:
-        """Анализ через Gemini API (fallback)."""
-        if not settings.GEMINI_API_KEY:
-            logger.warning("GEMINI_API_KEY not set — skipping Gemini fallback")
-            return None
-
-        prompt = self._build_gemini_prompt(symbol, indicators, candles)
-
-        # 1. Попытка через современный google.genai SDK
+    def _analyze_with_ollama(self, symbol: str, indicators: TechnicalIndicators, candles: list[dict]) -> Optional[PredictionResult]:
+        """Анализ через локальную Ollama-модель."""
+        prompt = self._build_ollama_prompt(symbol, indicators, candles)
+        payload = json.dumps({
+            "model": settings.OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "format": "json",
+        }).encode("utf-8")
+        request = urllib.request.Request(
+            f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/generate",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
         try:
-            from google import genai
-            client = genai.Client(api_key=settings.GEMINI_API_KEY)
-            response = client.models.generate_content(
-                model=settings.GEMINI_MODEL,
-                contents=prompt,
-            )
-            if response and response.text:
-                return self._parse_gemini_response(response.text)
-        except ImportError:
-            logger.warning("google-genai not installed — Gemini fallback disabled")
-            return None
+            with urllib.request.urlopen(request, timeout=settings.OLLAMA_TIMEOUT) as response:
+                result = json.loads(response.read().decode("utf-8"))
+            text = result.get("response", "")
+            if text:
+                return self._parse_ollama_response(text)
+        except urllib.error.URLError as e:
+            logger.warning(f"Ollama is unavailable at {settings.OLLAMA_BASE_URL}: {e}")
         except Exception as e:
-            logger.warning(f"Gemini API call failed: {e}")
-            return None
+            logger.warning(f"Ollama API call failed: {e}")
 
         return None
 
-    def _build_gemini_prompt(self, symbol: str, indicators: TechnicalIndicators, candles: list[dict]) -> str:
+    def _build_ollama_prompt(self, symbol: str, indicators: TechnicalIndicators, candles: list[dict]) -> str:
         """РЎС„РѕСЂРјРёСЂРѕРІР°С‚СЊ РїСЂРѕРјРїС‚ РґР»СЏ Gemini."""
         recent_candles = "\n".join([
             f"  Time: {c['time']}, O:{c['open']} H:{c['high']} L:{c['low']} C:{c['close']} V:{c['volume']}"
@@ -298,16 +302,14 @@ class AIEngine:
 """
         return prompt
 
-    def _parse_gemini_response(self, text: str) -> PredictionResult:
+    def _parse_ollama_response(self, text: str) -> PredictionResult:
         """РџР°СЂСЃРёС‚СЊ РѕС‚РІРµС‚ Gemini РІ PredictionResult."""
-        import json
-        
         # РР·РІР»РµРєР°РµРј JSON РёР· С‚РµРєСЃС‚Р°
         start = text.find("{")
         end = text.rfind("}") + 1
         
         if start == -1 or end == 0:
-            logger.warning("Could not find JSON in Gemini response")
+            logger.warning("Could not find JSON in Ollama response")
             return PredictionResult(signal=SignalType.HOLD, confidence=0.0, reason="No valid signal from AI")
 
         try:
@@ -321,7 +323,7 @@ class AIEngine:
                 take_profit=data.get("take_profit"),
             )
         except json.JSONDecodeError:
-            logger.warning(f"Failed to parse Gemini JSON: {text[start:end]}")
+            logger.warning(f"Failed to parse Ollama JSON: {text[start:end]}")
             return PredictionResult(signal=SignalType.HOLD, confidence=0.0, reason="Parse error")
 
     # ==================== Core Analysis (Always Available) ====================
@@ -366,9 +368,9 @@ class AIEngine:
             except Exception as e:
                 logger.warning(f"Kronos prediction failed, continuing with technical analysis only: {e}")
 
-        # Gemini fallback (РµСЃР»Рё РІРєР»СЋС‡РµРЅРѕ)
+        # Ollama fallback (РµСЃР»Рё РІРєР»СЋС‡РµРЅРѕ)
         gemini_signal = None
-        if use_gemini and settings.USE_GEMINI_FALLBACK:
+        if use_gemini and settings.USE_OLLAMA:
             try:
                 recent_df = candles_df.tail(20).copy()
                 recent_dict = []
@@ -381,11 +383,11 @@ class AIEngine:
                         "close": float(row["close"]),
                         "volume": int(row.get("volume", 0)),
                     })
-                gemini_result = self._analyze_with_gemini(symbol, indicators, recent_dict)
+                gemini_result = self._analyze_with_ollama(symbol, indicators, recent_dict)
                 if gemini_result and gemini_result.signal != SignalType.HOLD:
                     gemini_signal = gemini_result
             except Exception as e:
-                logger.warning(f"Gemini analysis failed, using technical + Kronos only: {e}")
+                logger.warning(f"Ollama analysis failed, using technical + Kronos only: {e}")
 
         # ==================== Р’Р·РІРµС€РµРЅРЅР°СЏ РєРѕРјР±РёРЅР°С†РёСЏ СЃРёРіРЅР°Р»РѕРІ ====================
         final_signal = self._combine_signals(
@@ -522,7 +524,7 @@ class AIEngine:
         weights = {
             "tech": 0.5,
             "kronos": 0.25 if settings.USE_KRONOS_LOCAL else 0,
-            "gemini": 0.25 if settings.USE_GEMINI_FALLBACK else 0,
+            "gemini": 0.25 if settings.USE_OLLAMA else 0,
         }
         
         total_weight = sum(weights.values())

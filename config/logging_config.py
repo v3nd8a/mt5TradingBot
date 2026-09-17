@@ -6,6 +6,20 @@ from logging.handlers import RotatingFileHandler
 from config.settings import settings, LOGS_DIR
 
 
+class ConsoleNoiseFilter(logging.Filter):
+    """Скрывает техническую диагностику свечей только из консоли."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage().lower()
+        if record.name == "mt5_connector" and (
+            message.startswith("fetched ") or message.startswith("saved ")
+        ):
+            return False
+        if record.name == "trader" and "initial candles" in message:
+            return False
+        return True
+
+
 def setup_logging() -> logging.Logger:
     """Инициализация логирования — консоль + файлы с ротейтингом."""
     LOGS_DIR.mkdir(exist_ok=True)
@@ -25,6 +39,7 @@ def setup_logging() -> logging.Logger:
         datefmt="%H:%M:%S",
     )
     console_handler.setFormatter(console_formatter)
+    console_handler.addFilter(ConsoleNoiseFilter())
     root_logger.addHandler(console_handler)
 
     # === File handlers (one per module) ===

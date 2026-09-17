@@ -148,7 +148,7 @@ class TradingLoop:
                 candles_df=candles_df,
                 symbol=self._current_symbol,
                 use_kronos=settings.USE_KRONOS_LOCAL,
-                use_gemini=settings.USE_GEMINI_FALLBACK,
+                use_gemini=settings.USE_OLLAMA,
             )
 
             # 4. Сохраняем сигнал в БД
