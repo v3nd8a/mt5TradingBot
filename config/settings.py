@@ -51,6 +51,8 @@ try:
         USE_KRONOS_LOCAL: bool = True  # локальная модель Kronos
         USE_GEMINI_FALLBACK: bool = False  # deprecated — используем Ollama вместо этого
         KRONOS_FORECAST_HORIZON: int = 10  # горизонта прогноза в свечах (10–15 обычно)
+        KRONOS_HISTORY_CANDLES: int = 1000
+        KRONOS_CALIBRATION_MIN_SAMPLES: int = 20
 
         # ==================== Database ====================
         DB_DSN: str = "postgresql+psycopg2://postgres:password@localhost:5432/trading_db"
@@ -126,6 +128,8 @@ except ImportError:
         USE_KRONOS_LOCAL: bool = True
         USE_GEMINI_FALLBACK: bool = False
         KRONOS_FORECAST_HORIZON: int = 10
+        KRONOS_HISTORY_CANDLES: int = 1000
+        KRONOS_CALIBRATION_MIN_SAMPLES: int = 20
 
         # ==================== Database ====================
         DB_DSN: str = "postgresql+psycopg2://postgres:password@localhost:5432/trading_db"

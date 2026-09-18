@@ -389,6 +389,23 @@ class AIEngine:
         if use_kronos and settings.USE_KRONOS_LOCAL:
             try:
                 kronos_result = self._predict_with_kronos(candles_df, symbol=symbol)
+                if kronos_result:
+                    calibration_horizon = int(settings.KRONOS_FORECAST_HORIZON)
+                    calibrated, samples = self._kronos_model.calibrated_confidence(
+                        kronos_result.confidence,
+                        candles_df,
+                        symbol,
+                        calibration_horizon,
+                        int(settings.KRONOS_CALIBRATION_MIN_SAMPLES),
+                    )
+                    kronos_result = PredictionResult(
+                        signal=kronos_result.signal,
+                        confidence=calibrated,
+                        reason=f"{kronos_result.reason} | calibrated from {samples} samples",
+                        target_price=kronos_result.target_price,
+                        stop_loss=kronos_result.stop_loss,
+                        take_profit=kronos_result.take_profit,
+                    )
                 if kronos_result and kronos_result.signal != SignalType.HOLD:
                     kronos_signal = kronos_result
             except Exception as e:

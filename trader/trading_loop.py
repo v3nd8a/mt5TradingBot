@@ -80,7 +80,7 @@ class TradingLoop:
         candles_df = self.mt5.get_candles(
             symbol=self._current_symbol,
             timeframe=settings.DEFAULT_SYMBOL.split('JPY')[1] if 'JPY' in settings.DEFAULT_SYMBOL and False else "H1",
-            count=300,
+            count=settings.KRONOS_HISTORY_CANDLES,
         )
         if not candles_df.empty:
             self.mt5.save_candles_to_db(candles_df, self._current_symbol, "H1")
@@ -135,7 +135,7 @@ class TradingLoop:
             candles_df = self.mt5.get_candles(
                 symbol=self._current_symbol,
                 timeframe="H1",
-                count=300,
+                count=settings.KRONOS_HISTORY_CANDLES,
             )
             
             if candles_df.empty:
@@ -170,6 +170,9 @@ class TradingLoop:
             # 5. Если сигнал actionable — исполняем ордер (M4)
             if signal.is_actionable:
                 logger.info(f"[SIGNAL] {signal.signal.value} confidence={signal.confidence:.2f}")
+                closed = self.executor.close_on_reversal(signal, self._current_symbol)
+                if closed:
+                    logger.info(f"[REVERSAL] Closed {closed} opposite position(s)")
                 
                 # Проверяем что можно торговать
                 order_request = self.executor.plan_order(signal, self._current_symbol)

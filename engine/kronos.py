@@ -203,6 +203,109 @@ class KronosPredictor:
             take_profit=round(float(take_profit), digits) if take_profit else None,
         )
 
+    def evaluate_horizons(
+        self,
+        df: pd.DataFrame,
+        symbol: str = "",
+        horizons: tuple[int, ...] = (1, 3, 5, 10, 15, 20, 30),
+    ) -> dict[int, dict[str, float]]:
+        """Оценить горизонты Kronos walk-forward без использования будущих свечей."""
+        results = {}
+        min_history = 60
+        for horizon in sorted({int(value) for value in horizons if int(value) > 0}):
+            returns = []
+            correct = 0
+            opportunities = max(len(df) - min_history - horizon + 1, 0)
+            for end_index in range(min_history, len(df) - horizon + 1):
+                history = df.iloc[:end_index]
+                prediction = self.predict(history, symbol=symbol, horizon=horizon)
+                if prediction is None or prediction.signal == SignalType.HOLD:
+                    continue
+
+                entry_price = float(df.iloc[end_index - 1]["close"])
+                exit_price = float(df.iloc[end_index + horizon - 1]["close"])
+                direction = 1 if prediction.signal == SignalType.BUY else -1
+                realized_return = (exit_price / entry_price - 1.0) * direction
+                returns.append(realized_return)
+                correct += int(realized_return > 0)
+
+            positive = sum(value for value in returns if value > 0)
+            negative = abs(sum(value for value in returns if value < 0))
+            results[horizon] = {
+                "samples": float(len(returns)),
+                "opportunities": float(opportunities),
+                "coverage": len(returns) / opportunities if opportunities else 0.0,
+                "directional_accuracy": correct / len(returns) if returns else 0.0,
+                "avg_return_pct": (sum(returns) / len(returns) * 100.0) if returns else 0.0,
+                "total_return_pct": sum(returns) * 100.0,
+                "profit_factor": positive / negative if negative else (float("inf") if positive else 0.0),
+            }
+        return results
+
+    def calibrate_confidence(
+        self,
+        df: pd.DataFrame,
+        symbol: str = "",
+        horizon: int = 1,
+        bucket_size: float = 0.1,
+    ) -> list[dict[str, float]]:
+        """Сопоставить confidence Kronos с фактическим исходом walk-forward-прогнозов."""
+        buckets = {}
+        for end_index in range(60, len(df) - horizon + 1):
+            prediction = self.predict(df.iloc[:end_index], symbol=symbol, horizon=horizon)
+            if prediction is None or prediction.signal == SignalType.HOLD:
+                continue
+
+            entry = float(df.iloc[end_index - 1]["close"])
+            exit_price = float(df.iloc[end_index + horizon - 1]["close"])
+            direction = 1 if prediction.signal == SignalType.BUY else -1
+            won = (exit_price / entry - 1.0) * direction > 0
+            bucket_start = min(int(prediction.confidence / bucket_size) * bucket_size, 0.9)
+            bucket = buckets.setdefault(bucket_start, {"confidence": [], "wins": 0})
+            bucket["confidence"].append(prediction.confidence)
+            bucket["wins"] += int(won)
+
+        report = []
+        for bucket_start in sorted(buckets):
+            values = buckets[bucket_start]
+            samples = len(values["confidence"])
+            observed = values["wins"] / samples
+            average = sum(values["confidence"]) / samples
+            report.append({
+                "bucket_start": bucket_start,
+                "bucket_end": min(bucket_start + bucket_size, 1.0),
+                "samples": float(samples),
+                "average_confidence": average,
+                "observed_win_rate": observed,
+                "calibration_error": average - observed,
+            })
+        return report
+
+    def calibrated_confidence(
+        self,
+        raw_confidence: float,
+        df: pd.DataFrame,
+        symbol: str = "",
+        horizon: int = 1,
+        min_samples: int = 20,
+    ) -> tuple[float, int]:
+        """Вернуть confidence, сглаженный историческим win rate этого диапазона."""
+        buckets = self.calibrate_confidence(df, symbol, horizon)
+        if not buckets:
+            return raw_confidence, 0
+
+        bucket_start = min(int(raw_confidence / 0.1) * 0.1, 0.9)
+        selected = min(buckets, key=lambda item: abs(item["bucket_start"] - bucket_start))
+        samples = int(selected["samples"])
+        if samples < min_samples:
+            return raw_confidence, samples
+
+        prior_strength = float(min_samples)
+        calibrated = (
+            selected["observed_win_rate"] * samples + raw_confidence * prior_strength
+        ) / (samples + prior_strength)
+        return float(np.clip(calibrated, 0.0, 0.99)), samples
+
     def _evaluate_features(self, feat: KronosFeatures) -> Tuple[float, float, list[str]]:
         """Анализ последовательности свечей по алгоритмам Kronos (паттерны K-линий, импульс, объем)."""
         reasons = []

@@ -44,15 +44,15 @@ if not exist ".env" (
 echo.
 echo =========================================
 echo  Choose mode:
-echo   1) Demo mode (no real orders)
-echo   2) Real mode 
+echo   1) Demo account (MT5 orders)
+echo   2) Real mode
 echo   3) Analyze only (exit after analysis)
 echo ========================================= 
 echo.
 set /p MODE="Enter choice (1, 2, 3): "
 
 if "%MODE%"=="1" (
-    echo [INFO] Starting in DEMO mode...
+    echo [INFO] Starting on DEMO account...
     python main.py --demo
 ) else if "%MODE%"=="2" (
     echo [WARNING] Starting on REAL account! 

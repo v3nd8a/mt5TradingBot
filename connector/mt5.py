@@ -429,13 +429,15 @@ class MT5Connector:
             return False
         return True
 
-    def close_all_positions(self, symbol: str = None) -> int:
+    def close_all_positions(self, symbol: str = None, ticket: int = None) -> int:
         """Закрыть все позиции (опционально по символу)."""
         if settings.MT5_SIMULATION_MODE:
             logger.info(f"[DEMO MODE] Would close all positions for {symbol or 'ALL'}")
             return 0
 
         positions = self.get_positions(symbol)
+        if ticket is not None:
+            positions = [position for position in positions if position["ticket"] == ticket]
         closed = 0
 
         for pos in positions:

@@ -334,8 +334,27 @@ class OrderExecutor:
             logger.info(f"[DEMO MODE] Would close position ticket={ticket or symbol or 'ALL'}")
             return True
         
-        closed = self.mt5.close_all_positions(symbol)
+        closed = self.mt5.close_all_positions(symbol, ticket=ticket)
         return closed > 0
+
+    def close_on_reversal(self, signal: PredictionResult, symbol: str) -> int:
+        """Закрыть позиции только при подтвержденном противоположном сигнале."""
+        if not signal.is_actionable:
+            return 0
+
+        expected_direction = "BUY" if signal.signal == SignalType.BUY else "SELL"
+        opposite_direction = "SELL" if expected_direction == "BUY" else "BUY"
+        closed = 0
+        for position in self.mt5.get_positions(symbol):
+            if position.get("type") != opposite_direction:
+                continue
+            if self.close_position(ticket=position.get("ticket"), symbol=symbol):
+                closed += 1
+                logger.info(
+                    f"[REVERSAL] Closed {opposite_direction} {symbol} ticket={position.get('ticket')} "
+                    f"after Kronos {expected_direction} signal"
+                )
+        return closed
 
 
 # ==================== Singleton ====================

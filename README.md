@@ -94,14 +94,17 @@ pip install -r requirements.txt
 ### Запуск
 
 ```bash
-# Демо-режим (AMarkets Demo #7872510, ордера не исполняются в рынок)
+# Торговля на демо-счете AMarkets Demo #7872510
 python main.py --demo
 
 # Демо + Telegram бот
 python main.py --demo --bot
 
+# Paper simulation без заявок в MT5
+python main.py --simulate
+
 # Реал (XM #401397663) — ОСТОРОЖНО, реальные деньги!
-python main.py
+python main.py --real
 
 # Быстрый анализ символа без торговли
 python main.py --analyze XAUUSD

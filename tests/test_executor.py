@@ -132,6 +132,22 @@ class TestOrderExecutor(unittest.TestCase):
         result = self.executor.execute(req)
         self.assertIsNone(result)
 
+    def test_close_on_reversal_closes_only_opposite_positions(self):
+        signal = PredictionResult(signal=SignalType.BUY, confidence=0.8, reason="Kronos reversal")
+        self.mock_mt5.get_positions.return_value = [
+            {"ticket": 11, "symbol": "XAUUSD", "type": "SELL", "volume": 0.1},
+            {"ticket": 12, "symbol": "XAUUSD", "type": "BUY", "volume": 0.1},
+        ]
+        self.mock_mt5.close_all_positions.return_value = 1
+        closed = self.executor.close_on_reversal(signal, "XAUUSD")
+        self.assertEqual(closed, 1)
+        self.mock_mt5.close_all_positions.assert_called_once_with("XAUUSD", ticket=11)
+
+    def test_hold_does_not_close_positions(self):
+        signal = PredictionResult(signal=SignalType.HOLD, confidence=0.9, reason="Kronos HOLD")
+        self.assertEqual(self.executor.close_on_reversal(signal, "XAUUSD"), 0)
+        self.mock_mt5.get_positions.assert_not_called()
+
     def test_execute_in_demo_mode(self):
         original_simulation = settings.MT5_SIMULATION_MODE
         try:

@@ -124,6 +124,42 @@ class TestKronosPredictor(unittest.TestCase):
             self.assertGreater(result.take_profit, result.target_price - 0.01)
             self.assertGreaterEqual(df.iloc[-1]["close"] - result.stop_loss, 0.0)
 
+    def test_horizon_evaluation_is_walk_forward(self):
+        report = self.predictor.evaluate_horizons(
+            create_sample_candles(100, trend="bullish"),
+            "EURUSD",
+            horizons=(1, 5),
+        )
+        self.assertEqual(set(report), {1, 5})
+        for metrics in report.values():
+            self.assertIn("directional_accuracy", metrics)
+            self.assertIn("profit_factor", metrics)
+            self.assertLessEqual(metrics["coverage"], 1.0)
+
+    def test_confidence_calibration_compares_predictions_to_outcomes(self):
+        report = self.predictor.calibrate_confidence(
+            create_sample_candles(100, trend="bullish"),
+            "EURUSD",
+            horizon=1,
+        )
+        self.assertTrue(report)
+        for bucket in report:
+            self.assertIn("average_confidence", bucket)
+            self.assertIn("observed_win_rate", bucket)
+            self.assertIn("calibration_error", bucket)
+
+    def test_calibrated_confidence_uses_observed_win_rate(self):
+        confidence, samples = self.predictor.calibrated_confidence(
+            0.9,
+            create_sample_candles(100, trend="bullish"),
+            "EURUSD",
+            horizon=1,
+            min_samples=5,
+        )
+        self.assertGreater(samples, 0)
+        self.assertGreaterEqual(confidence, 0.0)
+        self.assertLessEqual(confidence, 0.99)
+
 
 class TestPredictionCache(unittest.TestCase):
     """Тестирование кэширования сигналов."""
