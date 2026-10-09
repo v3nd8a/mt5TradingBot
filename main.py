@@ -29,7 +29,10 @@ def parse_args():
     parser.add_argument("--simulate", action="store_true", help="Paper simulation without MT5 orders")
     parser.add_argument("--real", action="store_true", help="Force real MT5 account instead of AMarkets demo")
     parser.add_argument("--bot", action="store_true", help="Start Telegram bot alongside trading")
-    parser.add_argument("-s", "--symbol", type=str, default=None, help="Symbol to trade (default: EURUSD)")
+    parser.add_argument(
+        "-s", "--symbol", type=str, default=None,
+        help="Comma-separated symbols to trade (for example: BTCUSD,XAUUSD)",
+    )
     parser.add_argument("--analyze", type=str, help="Analyze symbol and exit (no trading loop)")
     parser.add_argument("--horizon-scan", type=str, help="Walk-forward Kronos horizon scan for symbol and exit")
     parser.add_argument("--horizons", type=str, default="1,3,5,10,15,20,30", help="Comma-separated forecast horizons")
@@ -53,7 +56,8 @@ async def main():
 
     # 3. Symbol override
     if args.symbol:
-        settings.DEFAULT_SYMBOL = args.symbol
+        settings.TRADING_SYMBOLS = args.symbol
+        settings.DEFAULT_SYMBOL = args.symbol.split(",")[0].strip().upper()
 
     loop_task = None
     bot_task = None

@@ -15,6 +15,8 @@ import signal as sig
 from datetime import datetime
 from typing import Optional
 
+import pandas as pd
+
 from config.settings import settings, LOGS_DIR
 from connector.mt5 import MT5Connector
 from engine.ai import AIEngine
@@ -34,18 +36,75 @@ class TradingLoop:
         self.executor = OrderExecutor(self.mt5)
         self._running = False
         self._db_available = False
-        self._current_symbol: str = settings.DEFAULT_SYMBOL
-        
+        configured_symbols = getattr(settings, "TRADING_SYMBOLS", "") or settings.DEFAULT_SYMBOL
+        self._symbols = self._parse_symbols(configured_symbols)
+        self._current_symbol: str = self._symbols[0]
+
         # Статистика
         self._total_cycles = 0
         self._signals_generated = 0
         self._orders_executed = 0
         self._orders_failed = 0
+        self._analysis_interval_min = float(settings.ANALYSIS_INTERVAL_MIN)
+        self._symbol_analysis_intervals = {
+            symbol: float(settings.ANALYSIS_INTERVAL_MIN) for symbol in self._symbols
+        }
+        self._last_signal = None
+        self._last_confidence = 0.0
+        self._last_reason = ""
+        self._last_candle_count = 0
+        self._last_analysis_at = None
+
+    @staticmethod
+    def _parse_symbols(value: str) -> list[str]:
+        """Разобрать строку символов и убрать дубликаты, сохранив порядок."""
+        symbols = []
+        for raw_symbol in value.split(","):
+            symbol = raw_symbol.strip().upper()
+            if symbol and symbol not in symbols:
+                symbols.append(symbol)
+        return symbols or [settings.DEFAULT_SYMBOL]
+
+    @staticmethod
+    def _minimum_sl_distance(candles_df) -> float:
+        """ATR-based distance для stop-loss с учётом последних 14 свечей."""
+        if candles_df is None or candles_df.empty:
+            return 0.0
+
+        true_range = pd.concat(
+            [
+                candles_df["high"] - candles_df["low"],
+                (candles_df["high"] - candles_df["close"].shift(1)).abs(),
+                (candles_df["low"] - candles_df["close"].shift(1)).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+        return float(true_range.tail(14).mean()) * float(settings.MIN_SL_ATR_MULTIPLIER)
+
+    @staticmethod
+    def _analysis_interval_for_activity(candles_df) -> float:
+        """Сокращать интервал анализа при высокой волатильности."""
+        if candles_df is None or candles_df.empty:
+            return float(settings.ANALYSIS_INTERVAL_MIN)
+
+        recent_true_range = pd.concat(
+            [
+                candles_df["high"] - candles_df["low"],
+                (candles_df["high"] - candles_df["close"].shift(1)).abs(),
+                (candles_df["low"] - candles_df["close"].shift(1)).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+        avg_recent_range = float(recent_true_range.tail(14).mean())
+        if avg_recent_range > 1.5:
+            return float(getattr(settings, "MIN_ANALYSIS_INTERVAL_MIN", settings.ANALYSIS_INTERVAL_MIN))
+        return float(settings.ANALYSIS_INTERVAL_MIN)
 
     async def start(self):
         """Запуск торгового бота."""
         logger.info("=" * 60)
         logger.info("TradingBot 'Крон' starting...")
+        logger.info(f"Config: SYMBOLS={','.join(self._symbols)}")
         logger.info(f"Config: DEFAULT_SYMBOL={settings.DEFAULT_SYMBOL}")
         logger.info(f"Config: CONFIDENCE_THRESHOLD={settings.CONFIDENCE_THRESHOLD}")
         logger.info(f"Config: ANALYSIS_INTERVAL={settings.ANALYSIS_INTERVAL_MIN}min")
@@ -76,15 +135,16 @@ class TradingLoop:
             logger.critical("MT5 connection failed — cannot proceed without MT5!")
             return
 
-        # 3. Загрузка первых свечей
-        candles_df = self.mt5.get_candles(
-            symbol=self._current_symbol,
-            timeframe=settings.DEFAULT_SYMBOL.split('JPY')[1] if 'JPY' in settings.DEFAULT_SYMBOL and False else "H1",
-            count=settings.KRONOS_HISTORY_CANDLES,
-        )
-        if not candles_df.empty:
-            self.mt5.save_candles_to_db(candles_df, self._current_symbol, "H1")
-            logger.info(f"Loaded {len(candles_df)} initial candles for {self._current_symbol}")
+        # 3. Загрузка первых свечей для всех выбранных символов
+        for symbol in self._symbols:
+            candles_df = self.mt5.get_candles(
+                symbol=symbol,
+                timeframe="H1",
+                count=settings.KRONOS_HISTORY_CANDLES,
+            )
+            if not candles_df.empty:
+                self.mt5.save_candles_to_db(candles_df, symbol, "H1")
+                logger.info(f"Loaded {len(candles_df)} initial candles for {symbol}")
 
         # 4. Сохраняем начальный портфолио снимок
         await self._save_portfolio_snapshot()
@@ -114,13 +174,19 @@ class TradingLoop:
             self.stop()
 
     async def _trading_cycle(self):
-        """Один цикл торгового процесса."""
+        """Один проход по всем настроенным символам."""
         self._total_cycles += 1
+        for symbol in self._symbols:
+            self._current_symbol = symbol
+            await self._trading_cycle_for_symbol()
+
+    async def _trading_cycle_for_symbol(self):
+        """Один цикл торгового процесса для конкретного символа."""
         cycle_start = datetime.now()
-        
+
         try:
             logger.info(f"\n{'='*40}")
-            logger.info(f"[Cycle #{self._total_cycles}] Analysis started at {cycle_start.strftime('%H:%M:%S')}")
+            logger.info(f"[Cycle #{self._total_cycles}] Analysis started for {self._current_symbol} at {cycle_start.strftime('%H:%M:%S')}")
 
             # 1. Проверка MT5
             if not self.mt5.is_connected:
@@ -137,7 +203,7 @@ class TradingLoop:
                 timeframe="H1",
                 count=settings.KRONOS_HISTORY_CANDLES,
             )
-            
+
             if candles_df.empty:
                 logger.warning("No candle data available — skipping cycle")
                 return
@@ -154,7 +220,7 @@ class TradingLoop:
                 logger.info(f"[RISK] trailing={management['trailed']} hedges={management['hedged']}")
 
             # Сохраняем в БД
-            saved = self.mt5.save_candles_to_db(candles_df, self._current_symbol, "H1")
+            self.mt5.save_candles_to_db(candles_df, self._current_symbol, "H1")
 
             # 3. AI Анализ (M3)
             signal = self.ai.analyze(
@@ -163,6 +229,13 @@ class TradingLoop:
                 use_kronos=settings.USE_KRONOS_LOCAL,
                 use_gemini=settings.USE_OLLAMA,
             )
+
+            self._signals_generated += 1
+            self._last_signal = signal.signal.value
+            self._last_confidence = float(signal.confidence)
+            self._last_reason = signal.reason or ""
+            self._last_candle_count = len(candles_df)
+            self._last_analysis_at = datetime.now()
 
             # 4. Сохраняем сигнал в БД
             await self._save_signal(signal)
@@ -173,23 +246,20 @@ class TradingLoop:
                 closed = self.executor.close_on_reversal(signal, self._current_symbol)
                 if closed:
                     logger.info(f"[REVERSAL] Closed {closed} opposite position(s)")
-                
-                # Проверяем что можно торговать
+
                 order_request = self.executor.plan_order(signal, self._current_symbol)
                 if order_request:
                     result = self.executor.execute(order_request)
-                    
+
                     if result:
                         self._orders_executed += 1
                         if settings.MT5_SIMULATION_MODE:
                             logger.info(f"[DEMO ORDER SIMULATED] {order_request.direction} {order_request.volume:.2f} @ current price")
                         else:
                             logger.info(f"[ORDER EXECUTED] {order_request.direction} {order_request.volume:.2f} @ current price")
-                        
-                        # Сохраняем сделку в БД
+
                         await self._save_trade(signal, order_request)
 
-                        # Telegram уведомление
                         try:
                             from bot.bot import get_bot_token
                             bot_inst = get_bot_token()
@@ -209,7 +279,6 @@ class TradingLoop:
             else:
                 logger.info(f"[HOLD] No actionable signal — waiting next cycle")
 
-            # 6. Сохраняем снимок портфеля
             await self._save_portfolio_snapshot()
 
             elapsed = (datetime.now() - cycle_start).total_seconds()
@@ -288,6 +357,7 @@ class TradingLoop:
                         "login": account_info["login"],
                         "server": account_info["server"],
                         "symbol_trading": self._current_symbol,
+                        "symbols_trading": self._symbols,
                         "orders_today": self._orders_executed,
                         "failures_today": self._orders_failed,
                     },
@@ -319,11 +389,16 @@ class TradingLoop:
             "mt5_connected": self.mt5.is_connected,
             "ai_ready": self.ai.is_ready if hasattr(self.ai, 'is_ready') else True,
             "current_symbol": self._current_symbol,
+            "symbols": self._symbols,
             "total_cycles": self._total_cycles,
             "signals_generated": self._signals_generated,
             "orders_executed": self._orders_executed,
             "orders_failed": self._orders_failed,
-            "last_candle_count": None,
+            "last_signal": self._last_signal,
+            "last_confidence": self._last_confidence,
+            "last_reason": self._last_reason,
+            "last_candle_count": self._last_candle_count,
+            "last_analysis_at": self._last_analysis_at,
             "account": account,
         }
 

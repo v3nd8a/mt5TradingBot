@@ -59,8 +59,10 @@ try:
 
         # ==================== Trading ====================
         DEFAULT_SYMBOL: str = "XAUUSD"
+        TRADING_SYMBOLS: str = ""
         TICK_INTERVAL_SEC: int = 5          # интервал опроса тиков
         ANALYSIS_INTERVAL_MIN: int = 15     # интервал анализа (минуты)
+        MIN_ANALYSIS_INTERVAL_MIN: int = 5  # минимальный интервал при высокой волатильности
         CONFIDENCE_THRESHOLD: float = DEFAULT_CONFIDENCE_THRESHOLD  # мин. confidence для сигнала
         MAX_POSITIONS: int = 3               # макс. открытых позиций
         
@@ -136,8 +138,10 @@ except ImportError:
 
         # ==================== Trading ====================
         DEFAULT_SYMBOL: str = "EURUSD"
+        TRADING_SYMBOLS: str = ""
         TICK_INTERVAL_SEC: int = 5
         ANALYSIS_INTERVAL_MIN: int = 15
+        MIN_ANALYSIS_INTERVAL_MIN: int = 5
         CONFIDENCE_THRESHOLD: float = DEFAULT_CONFIDENCE_THRESHOLD
         MAX_POSITIONS: int = 3
 

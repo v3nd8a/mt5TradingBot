@@ -109,7 +109,7 @@ class TelegramBotHandler:
             await message.answer(
                 f"📊 *TradingBot 'Крон' Status*\n\n"
                 f"MT5: {mt5_st} | AI: {ai_st}\n"
-                f"Symbol: {status['current_symbol']}\n"
+                f"Symbols: {', '.join(status.get('symbols', [status['current_symbol']]))}\n"
                 f"Cycles: {status['total_cycles']} | Orders: {status['orders_executed']}/{status['orders_failed']}\n",
                 parse_mode="Markdown"
             )
