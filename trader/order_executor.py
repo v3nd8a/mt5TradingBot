@@ -78,6 +78,10 @@ class OrderExecutor:
         self._order_count_window.append(now)
         return True
 
+    @staticmethod
+    def _is_hedge_position(position: dict) -> bool:
+        return "HEDGE" in str(position.get("comment", "")).upper()
+
     def _calculate_volume(self, symbol: str, direction: str, risk_pct: float = None) -> Optional[float]:
         """Рассчитать корректный объём ордера на основе риска."""
         account = self.mt5.get_account_info()
@@ -248,7 +252,7 @@ class OrderExecutor:
         opposite = "SELL" if position["type"] == "BUY" else "BUY"
         if any(p["type"] == opposite and "HEDGE" in str(p.get("comment", "")) for p in same_symbol):
             return False
-        if len(self.mt5.get_positions()) >= settings.MAX_POSITIONS or not self._check_rate_limit():
+        if not self._check_rate_limit():
             return False
         volume = max(round(float(position["volume"]) * float(settings.HEDGE_VOLUME_RATIO), 2), 0.01)
         point = self._get_point(position["symbol"])
@@ -284,23 +288,24 @@ class OrderExecutor:
             logger.warning(f"Skipping order — rate limited: {order_request.symbol}")
             return None
 
-        # Проверка лимита открытых позиций
+        # Хеджевые позиции не занимают лимиты обычных сделок.
         all_positions = self.mt5.get_positions()
-        if len(all_positions) >= settings.MAX_POSITIONS:
-            logger.warning(f"Max positions limit reached ({len(all_positions)}/{settings.MAX_POSITIONS})")
+        regular_positions = [p for p in all_positions if not self._is_hedge_position(p)]
+        if len(regular_positions) >= settings.MAX_POSITIONS:
+            logger.warning(
+                f"Max account positions limit reached "
+                f"({len(regular_positions)}/{settings.MAX_POSITIONS})"
+            )
             return None
 
-        # Проверка что нет позиции в ту же сторону
-        existing_positions = [p for p in all_positions if p.get("symbol") == order_request.symbol]
-        buy_pos = sum(p["volume"] for p in existing_positions if p["type"] == "BUY")
-        sell_pos = sum(p["volume"] for p in existing_positions if p["type"] == "SELL")
-
-        if order_request.direction == "BUY" and buy_pos > 0:
-            logger.info(f"Skipping BUY for {order_request.symbol}: BUY position already exists")
-            return None
-        
-        if order_request.direction == "SELL" and sell_pos > 0:
-            logger.info(f"Skipping SELL for {order_request.symbol}: SELL position already exists")
+        symbol_positions = [
+            p for p in regular_positions if p.get("symbol") == order_request.symbol
+        ]
+        if len(symbol_positions) >= settings.MAX_POSITIONS_PER_SYMBOL:
+            logger.warning(
+                f"Max positions limit reached for {order_request.symbol} "
+                f"({len(symbol_positions)}/{settings.MAX_POSITIONS_PER_SYMBOL})"
+            )
             return None
 
         # Демонстрационный режим: это только имитация ордера, а не реальный MT5 ордер.

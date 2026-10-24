@@ -115,7 +115,7 @@ class TestOrderExecutor(unittest.TestCase):
         self.assertEqual(result["trailed"], 1)
         self.mock_mt5.modify_position.assert_called_once_with(2, 4318.5, 4380.0)
 
-    def test_avoid_duplicate_position(self):
+    def test_execute_allows_same_direction_position(self):
         req = OrderRequest(
             symbol="EURUSD",
             direction="BUY",
@@ -130,7 +130,56 @@ class TestOrderExecutor(unittest.TestCase):
         ]
 
         result = self.executor.execute(req)
+        self.assertIsNotNone(result)
+        self.mock_mt5.send_market_order.assert_called_once()
+
+    def test_execute_rejects_when_symbol_position_limit_reached(self):
+        req = OrderRequest(
+            symbol="EURUSD",
+            direction="SELL",
+            volume=0.1,
+            reason="Test",
+        )
+        self.mock_mt5.get_positions.return_value = [
+            {"symbol": "EURUSD", "type": "BUY", "volume": 0.1}
+            for _ in range(settings.MAX_POSITIONS_PER_SYMBOL)
+        ]
+
+        result = self.executor.execute(req)
         self.assertIsNone(result)
+        self.mock_mt5.send_market_order.assert_not_called()
+
+    def test_hedges_do_not_count_toward_position_limits(self):
+        req = OrderRequest(
+            symbol="EURUSD",
+            direction="SELL",
+            volume=0.1,
+            reason="Test",
+        )
+        self.mock_mt5.get_positions.return_value = [
+            {"symbol": "EURUSD", "type": "BUY", "volume": 0.1, "comment": "Kronos HEDGE"}
+            for _ in range(settings.MAX_POSITIONS)
+        ]
+
+        result = self.executor.execute(req)
+        self.assertIsNotNone(result)
+        self.mock_mt5.send_market_order.assert_called_once()
+
+    def test_execute_rejects_when_account_position_limit_reached(self):
+        req = OrderRequest(
+            symbol="EURUSD",
+            direction="BUY",
+            volume=0.1,
+            reason="Test",
+        )
+        self.mock_mt5.get_positions.return_value = [
+            {"symbol": "GBPUSD", "type": "BUY", "volume": 0.1}
+            for _ in range(settings.MAX_POSITIONS)
+        ]
+
+        result = self.executor.execute(req)
+        self.assertIsNone(result)
+        self.mock_mt5.send_market_order.assert_not_called()
 
     def test_close_on_reversal_closes_only_opposite_positions(self):
         signal = PredictionResult(signal=SignalType.BUY, confidence=0.8, reason="Kronos reversal")

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from sqlalchemy import create_engine, text
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.orm import sessionmaker, Session
 
 from config.settings import settings, DB_SCHEMA_PATH
@@ -14,7 +15,14 @@ logger = logging.getLogger("db_logger")
 
 # ==================== Sync engine (for Alembic / migrations) ====================
 
-sync_engine = create_engine(settings.DB_DSN, pool_size=5, max_overflow=10)
+def _sync_database_url(dsn: str) -> URL:
+    url = make_url(dsn)
+    if url.drivername in {"postgresql", "postgresql+psycopg2"}:
+        url = url.set(drivername="postgresql+pg8000")
+    return url
+
+
+sync_engine = create_engine(_sync_database_url(settings.DB_DSN), pool_size=5, max_overflow=10)
 
 
 def init_db() -> bool:

@@ -61,22 +61,23 @@ try:
         DEFAULT_SYMBOL: str = "XAUUSD"
         TRADING_SYMBOLS: str = ""
         TICK_INTERVAL_SEC: int = 5          # интервал опроса тиков
-        ANALYSIS_INTERVAL_MIN: int = 15     # интервал анализа (минуты)
+        ANALYSIS_INTERVAL_MIN: int = 2     # интервал анализа (минуты)
         MIN_ANALYSIS_INTERVAL_MIN: int = 5  # минимальный интервал при высокой волатильности
         CONFIDENCE_THRESHOLD: float = DEFAULT_CONFIDENCE_THRESHOLD  # мин. confidence для сигнала
-        MAX_POSITIONS: int = 3               # макс. открытых позиций
+        MAX_POSITIONS: int = 20              # макс. обычных открытых позиций на счёте
+        MAX_POSITIONS_PER_SYMBOL: int = 20   # макс. обычных открытых позиций на тикер
         
         # Risk management
-        RISK_PER_TRADE_PCT: float = 1.0      # % депозита на сделку
-        DEFAULT_SL_PIPS: float = 100.0        # Stop Loss в пипсах
-        DEFAULT_TP_PIPS: float = 100.0       # Take Profit в пипсах
+        RISK_PER_TRADE_PCT: float = 2.0      # % депозита на сделку
+        DEFAULT_SL_PIPS: float = 50.0        # Stop Loss в пипсах
+        DEFAULT_TP_PIPS: float = 50.0       # Take Profit в пипсах
         FORECAST_RISK_REWARD: float = 2.0
         MIN_SL_ATR_MULTIPLIER: float = 1.5
         TRAILING_STOP_ENABLED: bool = True
-        TRAILING_STOP_PIPS: float = 50.0
-        TRAILING_ACTIVATION_PIPS: float = 50.0
+        TRAILING_STOP_PIPS: float = 30.0
+        TRAILING_ACTIVATION_PIPS: float = 30.0
         HEDGE_ENABLED: bool = False
-        HEDGE_TRIGGER_PIPS: float = 100.0
+        HEDGE_TRIGGER_PIPS: float = 50.0
         HEDGE_VOLUME_RATIO: float = 0.5
         MAX_ORDERS_PER_MIN: int = 3           # rate limiting
         
@@ -143,7 +144,8 @@ except ImportError:
         ANALYSIS_INTERVAL_MIN: int = 15
         MIN_ANALYSIS_INTERVAL_MIN: int = 5
         CONFIDENCE_THRESHOLD: float = DEFAULT_CONFIDENCE_THRESHOLD
-        MAX_POSITIONS: int = 3
+        MAX_POSITIONS: int = 20
+        MAX_POSITIONS_PER_SYMBOL: int = 20
 
         # Risk management
         RISK_PER_TRADE_PCT: float = 1.0

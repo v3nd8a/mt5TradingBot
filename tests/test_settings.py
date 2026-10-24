@@ -38,7 +38,8 @@ class TestTradingConfig(unittest.TestCase):
         self.assertTrue(0.65 <= settings.CONFIDENCE_THRESHOLD <= 1.0)
 
     def test_max_positions(self):
-        self.assertGreaterEqual(settings.MAX_POSITIONS, 1)
+        self.assertEqual(settings.MAX_POSITIONS, 20)
+        self.assertEqual(settings.MAX_POSITIONS_PER_SYMBOL, 20)
 
 
 if __name__ == "__main__":

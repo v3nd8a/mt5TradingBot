@@ -1,8 +1,8 @@
 # Core dependencies
 MetaTrader5>=5.0.45
 pydantic-settings>=2.0.0
-psycopg2-binary>=2.9.9
 SQLAlchemy>=2.0.0
+pg8000>=1.30.5
 
 # AI / ML
 google-genai>=1.0.0
@@ -16,7 +16,6 @@ pandas>=2.0.0
 aiogram>=3.0.0
 
 # Database
-psycopg2-binary>=2.9.9
 asyncpg>=0.29.0
 SQLAlchemy>=2.0.0
 
