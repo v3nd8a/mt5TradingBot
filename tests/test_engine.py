@@ -1,13 +1,16 @@
 """Unit tests для AI Engine (Kronos + Technical Analysis + Cache)."""
 
 import unittest
+import sys
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 import numpy as np
 import pandas as pd
 
 from config.settings import settings
 from engine.models import SignalType, PredictionResult, TechnicalIndicators
 from engine.ai import TechnicalAnalysis, PredictionCache, AIEngine
-from engine.kronos import KronosDataPreprocessor, KronosPredictor, get_kronos_predictor
+from engine.kronos import KronosPredictor
 
 
 def create_sample_candles(n: int = 250, trend: str = "bullish") -> pd.DataFrame:
@@ -64,20 +67,65 @@ class TestKronosPredictor(unittest.TestCase):
     """Тестирование Kronos AI модуля."""
 
     def setUp(self):
-        self.predictor = get_kronos_predictor()
+        self.predictor = KronosPredictor()
+        self.predictor._predictor = MagicMock()
+        self.forecast_delta = 0.01
+        self.predictor._predictor.predict.side_effect = self._mock_forecast
 
-    def test_preprocessor_features(self):
-        df = create_sample_candles(60)
-        features = KronosDataPreprocessor.preprocess(df)
-        self.assertIsNotNone(features)
-        self.assertEqual(len(features.body_pct), 60)
-        self.assertEqual(len(features.returns), 60)
-        self.assertGreater(features.volatility, 0)
+    def _mock_forecast(self, df, y_timestamp, pred_len, **kwargs):
+        current = float(df["close"].iloc[-1])
+        closes = current + np.linspace(
+            self.forecast_delta / pred_len,
+            self.forecast_delta,
+            pred_len,
+        )
+        return pd.DataFrame({"close": closes}, index=y_timestamp)
 
-    def test_preprocessor_insufficient_candles(self):
-        df = create_sample_candles(10)
-        features = KronosDataPreprocessor.preprocess(df)
-        self.assertIsNone(features)
+    def test_forecast_rejects_missing_required_columns(self):
+        df = create_sample_candles(60).drop(columns=["time"])
+        self.assertIsNone(self.predictor.predict(df, "EURUSD"))
+        self.predictor._predictor.predict.assert_not_called()
+
+    def test_forecast_rejects_empty_candles(self):
+        self.assertIsNone(self.predictor.predict(pd.DataFrame(), "EURUSD"))
+        self.predictor._predictor.predict.assert_not_called()
+
+    def test_loads_configured_pretrained_model_and_tokenizer_once(self):
+        upstream_root = Path(__file__).resolve().parents[1] / "vendor" / "Kronos"
+        with patch.object(sys, "path", [str(upstream_root), *sys.path]):
+            import model as official_model
+
+        loaded_predictor = MagicMock()
+        with (
+            patch.object(
+                official_model.KronosTokenizer,
+                "from_pretrained",
+                return_value=MagicMock(),
+            ) as load_tokenizer,
+            patch.object(
+                official_model.Kronos,
+                "from_pretrained",
+                return_value=MagicMock(),
+            ) as load_model,
+            patch.object(
+                official_model,
+                "KronosPredictor",
+                return_value=loaded_predictor,
+            ) as create_predictor,
+            patch("torch.cuda.is_available", return_value=True),
+        ):
+            predictor = KronosPredictor()
+            predictor._ensure_model_loaded()
+            predictor._ensure_model_loaded()
+
+        load_tokenizer.assert_called_once_with(settings.KRONOS_TOKENIZER_NAME)
+        load_model.assert_called_once_with(settings.KRONOS_MODEL_NAME)
+        create_predictor.assert_called_once()
+        self.assertEqual(create_predictor.call_args.kwargs["device"], "cuda")
+        self.assertEqual(
+            create_predictor.call_args.kwargs["max_context"],
+            settings.KRONOS_MAX_CONTEXT,
+        )
 
     def test_bullish_prediction(self):
         df = create_sample_candles(60, trend="bullish")
@@ -92,15 +140,14 @@ class TestKronosPredictor(unittest.TestCase):
             self.assertGreater(result.take_profit, df.iloc[-1]["close"])
 
     def test_bearish_prediction(self):
+        self.forecast_delta = -0.01
         df = create_sample_candles(60, trend="bearish")
         result = self.predictor.predict(df, "EURUSD")
-        self.assertIsNotNone(result)
-        self.assertIn(result.signal, [SignalType.SELL, SignalType.HOLD])
-        if result.signal == SignalType.SELL:
-            self.assertIsNotNone(result.stop_loss)
-            self.assertIsNotNone(result.take_profit)
-            self.assertGreater(result.stop_loss, df.iloc[-1]["close"])
-            self.assertLess(result.take_profit, df.iloc[-1]["close"])
+        self.assertEqual(result.signal, SignalType.SELL)
+        self.assertIsNotNone(result.stop_loss)
+        self.assertIsNotNone(result.take_profit)
+        self.assertGreater(result.stop_loss, df.iloc[-1]["close"])
+        self.assertLess(result.take_profit, df.iloc[-1]["close"])
 
     def test_prediction_with_horizon(self):
         df = create_sample_candles(120, trend="bullish")
@@ -109,6 +156,11 @@ class TestKronosPredictor(unittest.TestCase):
         self.assertIsNotNone(result.target_price)
         self.assertGreater(result.target_price, df.iloc[-1]["close"])
         self.assertIn("10 candles", result.reason)
+        self.predictor._predictor.predict.assert_called_once()
+        call_kwargs = self.predictor._predictor.predict.call_args.kwargs
+        self.assertEqual(call_kwargs["pred_len"], 10)
+        self.assertEqual(len(call_kwargs["y_timestamp"]), 10)
+        self.assertLessEqual(len(call_kwargs["df"]), settings.KRONOS_MAX_CONTEXT)
 
     def test_prediction_stop_respects_atr_distance(self):
         df = create_sample_candles(120, trend="bullish")
@@ -197,11 +249,19 @@ class TestAIEngine(unittest.TestCase):
 
     def test_analyze_pipeline(self):
         df = create_sample_candles(250, trend="bullish")
-        result = self.engine.analyze(df, "EURUSD", use_gemini=False)
+        kronos = PredictionResult(
+            signal=SignalType.BUY,
+            confidence=0.8,
+            reason="pretrained forecast",
+            target_price=float(df["close"].iloc[-1]) + 0.01,
+        )
+        with patch.object(self.engine, "_predict_with_kronos", return_value=kronos):
+            result = self.engine.analyze(df, "EURUSD", use_gemini=False)
         self.assertIsInstance(result, PredictionResult)
         self.assertIn(result.signal, [SignalType.BUY, SignalType.SELL, SignalType.HOLD])
         self.assertTrue(0.0 <= result.confidence <= 1.0)
         self.assertTrue(len(result.reason) > 0)
+        self.assertNotIn("calibrated from", result.reason)
 
     def test_threshold_hard_gate(self):
         original = settings.CONFIDENCE_THRESHOLD
@@ -242,6 +302,18 @@ class TestAIEngine(unittest.TestCase):
         tech = PredictionResult(signal=SignalType.BUY, confidence=0.99, reason="Technical bullish")
         result = self.engine._combine_signals(tech, kronos, None)
         self.assertEqual(result.signal, SignalType.HOLD)
+        self.assertIn("Kronos consolidation", result.reason)
+
+    def test_unavailable_kronos_includes_load_failure_reason(self):
+        tech = PredictionResult(signal=SignalType.HOLD, confidence=0.0, reason="neutral")
+        result = self.engine._combine_signals(
+            tech,
+            None,
+            None,
+            kronos_issue="failed to load pretrained checkpoint",
+        )
+        self.assertEqual(result.signal, SignalType.HOLD)
+        self.assertIn("failed to load pretrained checkpoint", result.reason)
 
     def test_ollama_prompt_contains_kronos_context(self):
         indicators = TechnicalIndicators(symbol="XAUUSD", current_price=4300.0)

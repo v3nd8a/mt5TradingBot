@@ -49,6 +49,10 @@ try:
         GEMINI_API_KEY: str = ""
         GEMINI_MODEL: str = "gemini-2.5-flash"
         USE_KRONOS_LOCAL: bool = True  # локальная модель Kronos
+        KRONOS_MODEL_NAME: str = "NeoQuasar/Kronos-base"
+        KRONOS_TOKENIZER_NAME: str = "NeoQuasar/Kronos-Tokenizer-base"
+        KRONOS_MAX_CONTEXT: int = 512
+        KRONOS_SAMPLE_COUNT: int = 1
         USE_GEMINI_FALLBACK: bool = False  # deprecated — используем Ollama вместо этого
         KRONOS_FORECAST_HORIZON: int = 10  # горизонта прогноза в свечах (10–15 обычно)
         KRONOS_HISTORY_CANDLES: int = 1000
@@ -61,14 +65,14 @@ try:
         DEFAULT_SYMBOL: str = "XAUUSD"
         TRADING_SYMBOLS: str = ""
         TICK_INTERVAL_SEC: int = 5          # интервал опроса тиков
-        ANALYSIS_INTERVAL_MIN: int = 2     # интервал анализа (минуты)
+        ANALYSIS_INTERVAL_MIN: int = 15     # интервал анализа (минуты)
         MIN_ANALYSIS_INTERVAL_MIN: int = 5  # минимальный интервал при высокой волатильности
         CONFIDENCE_THRESHOLD: float = DEFAULT_CONFIDENCE_THRESHOLD  # мин. confidence для сигнала
         MAX_POSITIONS: int = 20              # макс. обычных открытых позиций на счёте
         MAX_POSITIONS_PER_SYMBOL: int = 20   # макс. обычных открытых позиций на тикер
         
         # Risk management
-        RISK_PER_TRADE_PCT: float = 2.0      # % депозита на сделку
+        RISK_PER_TRADE_PCT: float = 1.0      # % депозита на сделку
         DEFAULT_SL_PIPS: float = 50.0        # Stop Loss в пипсах
         DEFAULT_TP_PIPS: float = 50.0       # Take Profit в пипсах
         FORECAST_RISK_REWARD: float = 2.0
@@ -129,6 +133,10 @@ except ImportError:
         GEMINI_API_KEY: str = ""
         GEMINI_MODEL: str = "gemini-2.0-flash"
         USE_KRONOS_LOCAL: bool = True
+        KRONOS_MODEL_NAME: str = "NeoQuasar/Kronos-base"
+        KRONOS_TOKENIZER_NAME: str = "NeoQuasar/Kronos-Tokenizer-base"
+        KRONOS_MAX_CONTEXT: int = 512
+        KRONOS_SAMPLE_COUNT: int = 1
         USE_GEMINI_FALLBACK: bool = False
         KRONOS_FORECAST_HORIZON: int = 10
         KRONOS_HISTORY_CANDLES: int = 1000

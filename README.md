@@ -56,7 +56,7 @@ mt5TradingBot/
 │
 ├── engine/
 │   ├── models.py            ← типы: SignalType, PredictionResult, TechnicalIndicators
-│   ├── kronos.py            ← нейросеть K-линий (основной AI)
+│   ├── kronos.py            ← адаптер предобученной модели Kronos
 │   └── ai.py                ← главный AI-движок, объединяет все три источника
 │
 ├── trader/
@@ -88,7 +88,25 @@ mt5TradingBot/
 
 ### Установка зависимостей
 ```bash
+git submodule update --init --recursive
 pip install -r requirements.txt
+```
+
+### Модель Kronos
+
+Используется официальный checkpoint `NeoQuasar/Kronos-base` и соответствующий
+`NeoQuasar/Kronos-Tokenizer-base`. При первом анализе Hugging Face скачает их
+в локальный кэш пользователя; повторно загружать веса при каждом цикле не нужно.
+Исходный код Kronos подключён как submodule в `vendor/Kronos`.
+
+Предиктор автоматически выбирает CUDA, если установленная сборка PyTorch её
+поддерживает; иначе работает на CPU. Для использования видеокарты нужна CUDA-сборка
+PyTorch — установите её командой для Windows из
+[официального селектора PyTorch](https://pytorch.org/get-started/locally/).
+Проверить доступность CUDA можно командой:
+
+```bash
+python -c "import torch; print(torch.cuda.is_available())"
 ```
 
 ### Запуск

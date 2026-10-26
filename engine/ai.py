@@ -201,6 +201,7 @@ class AIEngine:
 
     def __init__(self):
         self._kronos_model = None
+        self._last_kronos_issue: Optional[str] = None
         self._cache = PredictionCache(
             max_size=settings.PREDICTION_CACHE_MAX,
             ttl_sec=settings.PREDICTION_CACHE_TTL_SEC
@@ -224,17 +225,23 @@ class AIEngine:
             logger.info("Kronos AI predictor loaded successfully")
             return True
         except Exception as e:
+            self._last_kronos_issue = f"predictor initialization failed: {type(e).__name__}: {e}"
             logger.error(f"Failed to load Kronos predictor: {e}")
             return False
 
     def _predict_with_kronos(self, df: pd.DataFrame, symbol: str = "") -> Optional[PredictionResult]:
         """Предсказание через модель Kronos."""
+        self._last_kronos_issue = None
         if not self._load_kronos_model():
             return None
 
         try:
-            return self._kronos_model.predict(df, symbol=symbol)
+            result = self._kronos_model.predict(df, symbol=symbol)
+            if result is None:
+                self._last_kronos_issue = "Kronos returned no forecast; check the preceding warning"
+            return result
         except Exception as e:
+            self._last_kronos_issue = f"prediction failed: {type(e).__name__}: {e}"
             logger.error(f"Kronos prediction error: {e}")
             return None
 
@@ -386,30 +393,19 @@ class AIEngine:
 
         # Kronos РїСЂРµРґСЃРєР°Р·Р°РЅРёРµ (РµСЃР»Рё РІРєР»СЋС‡РµРЅРѕ Рё РјРѕРґРµР»СЊ Р·Р°РіСЂСѓР¶РµРЅР°)
         kronos_signal = None
+        kronos_issue = None
         if use_kronos and settings.USE_KRONOS_LOCAL:
             try:
                 kronos_result = self._predict_with_kronos(candles_df, symbol=symbol)
                 if kronos_result:
-                    calibration_horizon = int(settings.KRONOS_FORECAST_HORIZON)
-                    calibrated, samples = self._kronos_model.calibrated_confidence(
-                        kronos_result.confidence,
-                        candles_df,
-                        symbol,
-                        calibration_horizon,
-                        int(settings.KRONOS_CALIBRATION_MIN_SAMPLES),
-                    )
-                    kronos_result = PredictionResult(
-                        signal=kronos_result.signal,
-                        confidence=calibrated,
-                        reason=f"{kronos_result.reason} | calibrated from {samples} samples",
-                        target_price=kronos_result.target_price,
-                        stop_loss=kronos_result.stop_loss,
-                        take_profit=kronos_result.take_profit,
-                    )
-                if kronos_result and kronos_result.signal != SignalType.HOLD:
                     kronos_signal = kronos_result
+                else:
+                    kronos_issue = self._last_kronos_issue or "Kronos returned no forecast"
             except Exception as e:
+                kronos_issue = f"analysis failed: {type(e).__name__}: {e}"
                 logger.warning(f"Kronos prediction failed, continuing with technical analysis only: {e}")
+        else:
+            kronos_issue = "Kronos analysis is disabled"
 
         # Ollama fallback (РµСЃР»Рё РІРєР»СЋС‡РµРЅРѕ)
         gemini_signal = None
@@ -437,6 +433,7 @@ class AIEngine:
             tech=tech_signal,
             kronos=kronos_signal,
             gemini=gemini_signal,
+            kronos_issue=kronos_issue,
         )
         final_signal = self._apply_risk_levels(
             final_signal,
@@ -569,17 +566,23 @@ class AIEngine:
         self,
         tech: PredictionResult,
         kronos: Optional[PredictionResult],
-        gemini: Optional[PredictionResult]
+        gemini: Optional[PredictionResult],
+        kronos_issue: Optional[str] = None,
     ) -> PredictionResult:
         """Kronos задает направление; остальные модели только подтверждают его."""
         if not kronos:
-            return PredictionResult(signal=SignalType.HOLD, confidence=0.0, reason="Kronos unavailable")
+            detail = f": {kronos_issue}" if kronos_issue else ""
+            return PredictionResult(
+                signal=SignalType.HOLD,
+                confidence=0.0,
+                reason=f"Kronos unavailable{detail}",
+            )
 
         if kronos.signal == SignalType.HOLD:
             return PredictionResult(
                 signal=SignalType.HOLD,
                 confidence=kronos.confidence,
-                reason="Kronos HOLD; confirmations cannot override Kronos",
+                reason=f"Kronos HOLD; confirmations cannot override Kronos. Reason: {kronos.reason}",
             )
 
         confirmations = [item for item in (tech, gemini) if item and item.signal != SignalType.HOLD]
@@ -673,4 +676,3 @@ def get_ai_engine() -> AIEngine:
     if _ai_engine is None:
         _ai_engine = AIEngine()
     return _ai_engine
-
