@@ -1,7 +1,7 @@
 """Unit tests для OrderExecutor (исполнение ордеров, управление рисками и rate limiting)."""
 
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 import time
 
 from config.settings import settings
@@ -215,6 +215,73 @@ class TestOrderExecutor(unittest.TestCase):
             self.assertTrue(res.get("demo", False))
         finally:
             settings.MT5_SIMULATION_MODE = original_simulation
+
+    def test_execute_rejects_when_account_sell_half_limit_reached_even_with_zero_buy_positions(self):
+        # 10 позиций SELL из 20 возможных всего (половина выделена под SELL). 0 позиций BUY.
+        self.mock_mt5.get_positions.return_value = [
+            {"symbol": f"SYM_{i}", "type": "SELL", "volume": 0.1}
+            for i in range(settings.max_sell_positions)
+        ]
+
+        sell_req = OrderRequest(symbol="EURUSD", direction="SELL", volume=0.1, reason="Test Sell")
+        res_sell = self.executor.execute(sell_req)
+        self.assertIsNone(res_sell)
+        self.mock_mt5.send_market_order.assert_not_called()
+
+        # При этом BUY ордер должен успешно исполняться
+        buy_req = OrderRequest(symbol="EURUSD", direction="BUY", volume=0.1, reason="Test Buy")
+        res_buy = self.executor.execute(buy_req)
+        self.assertIsNotNone(res_buy)
+        self.mock_mt5.send_market_order.assert_called_once()
+
+    def test_execute_rejects_when_symbol_direction_limit_reached(self):
+        # Достигнут лимит SELL для конкретного символа EURUSD
+        self.mock_mt5.get_positions.return_value = [
+            {"symbol": "EURUSD", "type": "SELL", "volume": 0.1}
+            for _ in range(settings.max_sell_positions_per_symbol)
+        ]
+
+        sell_req = OrderRequest(symbol="EURUSD", direction="SELL", volume=0.1, reason="Test Sell")
+        res_sell = self.executor.execute(sell_req)
+        self.assertIsNone(res_sell)
+        self.mock_mt5.send_market_order.assert_not_called()
+
+        # BUY для этого же символа должен исполняться, пока есть лимит BUY
+        buy_req = OrderRequest(symbol="EURUSD", direction="BUY", volume=0.1, reason="Test Buy")
+        res_buy = self.executor.execute(buy_req)
+        self.assertIsNotNone(res_buy)
+        self.mock_mt5.send_market_order.assert_called_once()
+
+    @patch("connector.mt5.mt5_module")
+    def test_mt5_close_position_sends_position_ticket_and_broker_filling(self, mock_mt5_module):
+        from connector.mt5 import MT5Connector
+        connector = MT5Connector()
+        connector.get_positions = MagicMock(return_value=[
+            {"ticket": 777, "symbol": "XAUUSD", "type": "BUY", "volume": 0.05}
+        ])
+        mock_info = MagicMock()
+        mock_info.bid = 2000.50
+        mock_info.ask = 2000.80
+        mock_info.digits = 2
+        mock_info.filling_mode = 2  # IOC
+        mock_mt5_module.symbol_info.return_value = mock_info
+        mock_order_result = MagicMock()
+        mock_order_result.retcode = 10009  # TRADE_RETCODE_DONE
+        mock_mt5_module.order_send.return_value = mock_order_result
+        mock_mt5_module.TRADE_RETCODE_DONE = 10009
+        mock_mt5_module.TRADE_ACTION_DEAL = 1
+        mock_mt5_module.ORDER_TYPE_SELL = 1
+        mock_mt5_module.ORDER_FILLING_IOC = 1
+
+        closed = connector.close_all_positions("XAUUSD", ticket=777)
+        self.assertEqual(closed, 1)
+        mock_mt5_module.order_send.assert_called_once()
+        req = mock_mt5_module.order_send.call_args[0][0]
+        # Главная проверка: тикет ОБЯЗАН быть в поле position запроса
+        self.assertEqual(req["position"], 777)
+        self.assertEqual(req["symbol"], "XAUUSD")
+        self.assertEqual(req["volume"], 0.05)
+        self.assertEqual(req["type_filling"], 1)
 
 
 if __name__ == "__main__":

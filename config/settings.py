@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from typing import Optional
 try:
     from dotenv import load_dotenv, dotenv_values
 except ImportError:
@@ -64,12 +65,40 @@ try:
         # ==================== Trading ====================
         DEFAULT_SYMBOL: str = "XAUUSD"
         TRADING_SYMBOLS: str = ""
-        TICK_INTERVAL_SEC: int = 5          # интервал опроса тиков
-        ANALYSIS_INTERVAL_MIN: int = 15     # интервал анализа (минуты)
-        MIN_ANALYSIS_INTERVAL_MIN: int = 5  # минимальный интервал при высокой волатильности
+        TICK_INTERVAL_SEC: int = 3          # интервал опроса тиков
+        ANALYSIS_INTERVAL_MIN: int = 5     # интервал анализа (минуты)
+        MIN_ANALYSIS_INTERVAL_MIN: int = 3  # минимальный интервал при высокой волатильности
         CONFIDENCE_THRESHOLD: float = DEFAULT_CONFIDENCE_THRESHOLD  # мин. confidence для сигнала
-        MAX_POSITIONS: int = 20              # макс. обычных открытых позиций на счёте
-        MAX_POSITIONS_PER_SYMBOL: int = 20   # макс. обычных открытых позиций на тикер
+        MAX_POSITIONS: int = 2              # макс. обычных открытых позиций на счёте (50% BUY, 50% SELL)
+        MAX_POSITIONS_PER_SYMBOL: int = 2   # макс. обычных открытых позиций на тикер (50% BUY, 50% SELL)
+        MAX_BUY_POSITIONS: Optional[int] = None              # переопределение лимита BUY на счёте (по умолч. MAX_POSITIONS // 2)
+        MAX_SELL_POSITIONS: Optional[int] = None             # переопределение лимита SELL на счёте (по умолч. MAX_POSITIONS // 2)
+        MAX_BUY_POSITIONS_PER_SYMBOL: Optional[int] = None   # переопределение лимита BUY на тикер (по умолч. MAX_POSITIONS_PER_SYMBOL // 2)
+        MAX_SELL_POSITIONS_PER_SYMBOL: Optional[int] = None  # переопределение лимита SELL на тикер (по умолч. MAX_POSITIONS_PER_SYMBOL // 2)
+
+        @property
+        def max_buy_positions(self) -> int:
+            if self.MAX_BUY_POSITIONS is not None:
+                return self.MAX_BUY_POSITIONS
+            return max(1, self.MAX_POSITIONS // 2) if self.MAX_POSITIONS > 1 else self.MAX_POSITIONS
+
+        @property
+        def max_sell_positions(self) -> int:
+            if self.MAX_SELL_POSITIONS is not None:
+                return self.MAX_SELL_POSITIONS
+            return max(1, self.MAX_POSITIONS // 2) if self.MAX_POSITIONS > 1 else self.MAX_POSITIONS
+
+        @property
+        def max_buy_positions_per_symbol(self) -> int:
+            if self.MAX_BUY_POSITIONS_PER_SYMBOL is not None:
+                return self.MAX_BUY_POSITIONS_PER_SYMBOL
+            return max(1, self.MAX_POSITIONS_PER_SYMBOL // 2) if self.MAX_POSITIONS_PER_SYMBOL > 1 else self.MAX_POSITIONS_PER_SYMBOL
+
+        @property
+        def max_sell_positions_per_symbol(self) -> int:
+            if self.MAX_SELL_POSITIONS_PER_SYMBOL is not None:
+                return self.MAX_SELL_POSITIONS_PER_SYMBOL
+            return max(1, self.MAX_POSITIONS_PER_SYMBOL // 2) if self.MAX_POSITIONS_PER_SYMBOL > 1 else self.MAX_POSITIONS_PER_SYMBOL
         
         # Risk management
         RISK_PER_TRADE_PCT: float = 1.0      # % депозита на сделку
@@ -152,8 +181,36 @@ except ImportError:
         ANALYSIS_INTERVAL_MIN: int = 15
         MIN_ANALYSIS_INTERVAL_MIN: int = 5
         CONFIDENCE_THRESHOLD: float = DEFAULT_CONFIDENCE_THRESHOLD
-        MAX_POSITIONS: int = 20
-        MAX_POSITIONS_PER_SYMBOL: int = 20
+        MAX_POSITIONS: int = 2
+        MAX_POSITIONS_PER_SYMBOL: int = 2
+        MAX_BUY_POSITIONS: Optional[int] = None
+        MAX_SELL_POSITIONS: Optional[int] = None
+        MAX_BUY_POSITIONS_PER_SYMBOL: Optional[int] = None
+        MAX_SELL_POSITIONS_PER_SYMBOL: Optional[int] = None
+
+        @property
+        def max_buy_positions(self) -> int:
+            if self.MAX_BUY_POSITIONS is not None:
+                return self.MAX_BUY_POSITIONS
+            return max(1, self.MAX_POSITIONS // 2) if self.MAX_POSITIONS > 1 else self.MAX_POSITIONS
+
+        @property
+        def max_sell_positions(self) -> int:
+            if self.MAX_SELL_POSITIONS is not None:
+                return self.MAX_SELL_POSITIONS
+            return max(1, self.MAX_POSITIONS // 2) if self.MAX_POSITIONS > 1 else self.MAX_POSITIONS
+
+        @property
+        def max_buy_positions_per_symbol(self) -> int:
+            if self.MAX_BUY_POSITIONS_PER_SYMBOL is not None:
+                return self.MAX_BUY_POSITIONS_PER_SYMBOL
+            return max(1, self.MAX_POSITIONS_PER_SYMBOL // 2) if self.MAX_POSITIONS_PER_SYMBOL > 1 else self.MAX_POSITIONS_PER_SYMBOL
+
+        @property
+        def max_sell_positions_per_symbol(self) -> int:
+            if self.MAX_SELL_POSITIONS_PER_SYMBOL is not None:
+                return self.MAX_SELL_POSITIONS_PER_SYMBOL
+            return max(1, self.MAX_POSITIONS_PER_SYMBOL // 2) if self.MAX_POSITIONS_PER_SYMBOL > 1 else self.MAX_POSITIONS_PER_SYMBOL
 
         # Risk management
         RISK_PER_TRADE_PCT: float = 1.0

@@ -298,6 +298,21 @@ class OrderExecutor:
             )
             return None
 
+        # Лимит по направлению сделки (BUY / SELL) на счёте
+        direction = (order_request.direction or "").upper()
+        dir_positions = [
+            p for p in regular_positions if (p.get("type") or "").upper() == direction
+        ]
+        max_account_dir_limit = (
+            settings.max_buy_positions if direction == "BUY" else settings.max_sell_positions
+        )
+        if len(dir_positions) >= max_account_dir_limit:
+            logger.warning(
+                f"Max account {direction} positions limit reached "
+                f"({len(dir_positions)}/{max_account_dir_limit})"
+            )
+            return None
+
         symbol_positions = [
             p for p in regular_positions if p.get("symbol") == order_request.symbol
         ]
@@ -305,6 +320,20 @@ class OrderExecutor:
             logger.warning(
                 f"Max positions limit reached for {order_request.symbol} "
                 f"({len(symbol_positions)}/{settings.MAX_POSITIONS_PER_SYMBOL})"
+            )
+            return None
+
+        # Лимит по направлению сделки (BUY / SELL) на символ
+        symbol_dir_positions = [
+            p for p in symbol_positions if (p.get("type") or "").upper() == direction
+        ]
+        max_symbol_dir_limit = (
+            settings.max_buy_positions_per_symbol if direction == "BUY" else settings.max_sell_positions_per_symbol
+        )
+        if len(symbol_dir_positions) >= max_symbol_dir_limit:
+            logger.warning(
+                f"Max {direction} positions limit reached for {order_request.symbol} "
+                f"({len(symbol_dir_positions)}/{max_symbol_dir_limit})"
             )
             return None
 

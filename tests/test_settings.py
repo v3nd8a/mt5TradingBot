@@ -41,6 +41,12 @@ class TestTradingConfig(unittest.TestCase):
         self.assertEqual(settings.MAX_POSITIONS, 20)
         self.assertEqual(settings.MAX_POSITIONS_PER_SYMBOL, 20)
 
+    def test_max_directional_positions_split(self):
+        self.assertEqual(settings.max_buy_positions, settings.MAX_POSITIONS // 2)
+        self.assertEqual(settings.max_sell_positions, settings.MAX_POSITIONS // 2)
+        self.assertEqual(settings.max_buy_positions_per_symbol, settings.MAX_POSITIONS_PER_SYMBOL // 2)
+        self.assertEqual(settings.max_sell_positions_per_symbol, settings.MAX_POSITIONS_PER_SYMBOL // 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -246,6 +246,7 @@ class TradingLoop:
                 closed = self.executor.close_on_reversal(signal, self._current_symbol)
                 if closed:
                     logger.info(f"[REVERSAL] Closed {closed} opposite position(s)")
+                    await asyncio.sleep(0.5)
 
                 order_request = self.executor.plan_order(signal, self._current_symbol)
                 if order_request:

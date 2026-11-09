@@ -430,7 +430,7 @@ class MT5Connector:
         return True
 
     def close_all_positions(self, symbol: str = None, ticket: int = None) -> int:
-        """Закрыть все позиции (опционально по символу)."""
+        """Закрыть все позиции (опционально по символу или тикету)."""
         if settings.MT5_SIMULATION_MODE:
             logger.info(f"[DEMO MODE] Would close all positions for {symbol or 'ALL'}")
             return 0
@@ -441,35 +441,55 @@ class MT5Connector:
         closed = 0
 
         for pos in positions:
+            symbol_info = mt5_module.symbol_info(pos["symbol"])
+            if symbol_info is None:
+                logger.error(f"Cannot get symbol info for {pos['symbol']} to close ticket {pos['ticket']}")
+                continue
+
             if pos["type"] == "BUY":
-                close_price = mt5_module.symbol_info(pos["symbol"]).bid
+                close_price = symbol_info.bid
                 order_type = mt5_module.ORDER_TYPE_SELL
             else:
-                close_price = mt5_module.symbol_info(pos["symbol"]).ask
+                close_price = symbol_info.ask
                 order_type = mt5_module.ORDER_TYPE_BUY
 
             if close_price is None or close_price == 0:
+                logger.error(f"Cannot get valid close price for {pos['symbol']} ticket {pos['ticket']}")
                 continue
 
-            digits = mt5_module.symbol_info(pos["symbol"]).digits
+            digits = symbol_info.digits
+
+            # Определяем режим исполнения (filling mode) брокера для символа
+            filling_flags = int(getattr(symbol_info, "filling_mode", 0))
+            if filling_flags & 2:
+                filling_mode = mt5_module.ORDER_FILLING_IOC
+            elif filling_flags & 1:
+                filling_mode = mt5_module.ORDER_FILLING_FOK
+            else:
+                filling_mode = mt5_module.ORDER_FILLING_RETURN
             
             request = {
                 "action": mt5_module.TRADE_ACTION_DEAL,
                 "symbol": pos["symbol"],
                 "volume": pos["volume"],
                 "type": order_type,
+                "position": pos["ticket"],  # КРИТИЧЕСКИ ВАЖНО: закрывает конкретную позицию, а не открывает встречную
                 "price": round(close_price, digits),
                 "deviation": 20,
                 "magic": 234567,
-                "comment": "Bot Close",
+                "comment": f"Close #{pos['ticket']}",
                 "type_time": mt5_module.ORDER_TIME_GTC,
-                "type_filling": mt5_module.ORDER_FILLING_IOC,
+                "type_filling": filling_mode,
             }
 
             result = mt5_module.order_send(request)
             if result and result.retcode == mt5_module.TRADE_RETCODE_DONE:
                 closed += 1
-                logger.info(f"Position closed: {pos['ticket']}")
+                logger.info(f"Position closed successfully: {pos['ticket']}")
+            else:
+                retcode = getattr(result, "retcode", None)
+                comment = getattr(result, "comment", mt5_module.last_error())
+                logger.error(f"Failed to close position {pos['ticket']}: {comment} (retcode={retcode})")
 
         logger.info(f"Closed {closed} positions")
         return closed
