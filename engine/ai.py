@@ -201,7 +201,9 @@ class AIEngine:
 
     def __init__(self):
         self._kronos_model = None
+        self._kairos_model = None
         self._last_kronos_issue: Optional[str] = None
+        self._last_kairos_issue: Optional[str] = None
         self._cache = PredictionCache(
             max_size=settings.PREDICTION_CACHE_MAX,
             ttl_sec=settings.PREDICTION_CACHE_TTL_SEC
@@ -210,7 +212,7 @@ class AIEngine:
 
     @property
     def is_ready(self) -> bool:
-        return True  # РўРµС…РЅРёС‡РµСЃРєРёР№ Р°РЅР°Р»РёР· РІСЃРµРіРґР° СЂР°Р±РѕС‚Р°РµС‚
+        return True  # Технический анализ всегда работает
 
     # ==================== Kronos Model ====================
 
@@ -243,6 +245,39 @@ class AIEngine:
         except Exception as e:
             self._last_kronos_issue = f"prediction failed: {type(e).__name__}: {e}"
             logger.error(f"Kronos prediction error: {e}")
+            return None
+
+    # ==================== Kairos Model ====================
+
+    def _load_kairos_model(self) -> bool:
+        """Загрузить модуль Kairos."""
+        if self._kairos_model is not None:
+            return True
+
+        try:
+            from engine.kairos import get_kairos_predictor
+            self._kairos_model = get_kairos_predictor()
+            logger.info("Kairos AI predictor loaded successfully")
+            return True
+        except Exception as e:
+            self._last_kairos_issue = f"predictor initialization failed: {type(e).__name__}: {e}"
+            logger.error(f"Failed to load Kairos predictor: {e}")
+            return False
+
+    def _predict_with_kairos(self, df: pd.DataFrame, symbol: str = "") -> Optional[PredictionResult]:
+        """Предсказание через модель Kairos."""
+        self._last_kairos_issue = None
+        if not self._load_kairos_model():
+            return None
+
+        try:
+            result = self._kairos_model.predict(df, symbol=symbol)
+            if result is None:
+                self._last_kairos_issue = "Kairos returned no forecast; check the preceding warning"
+            return result
+        except Exception as e:
+            self._last_kairos_issue = f"prediction failed: {type(e).__name__}: {e}"
+            logger.error(f"Kairos prediction error: {e}")
             return None
 
     # ==================== Ollama Fallback ====================
@@ -294,18 +329,20 @@ class AIEngine:
             for c in candles[-10:]
         ])
 
+        predictor_type = getattr(settings, "AI_PREDICTOR", "kronos").lower().strip()
+        model_name = "Kairos" if (predictor_type == "kairos" or (kronos and "Kairos" in getattr(kronos, "reason", ""))) else "Kronos"
         kronos_context = (
             f"Сигнал: {kronos.signal.value}; confidence: {kronos.confidence:.3f}; "
             f"target: {kronos.target_price}; SL: {kronos.stop_loss}; TP: {kronos.take_profit}; "
             f"обоснование: {kronos.reason}"
-            if kronos else "Kronos недоступен"
+            if kronos else f"{model_name} недоступен"
         )
-        prompt = f"""Ты — подтверждающий аналитик для модели Kronos по символу {symbol}.
-    Kronos — главный источник направления и торговых уровней. Не меняй его BUY/SELL/HOLD.
-    Проверь его вывод техническими данными и верни тот же signal. Если Kronos дал HOLD,
-    верни HOLD. Не изобретай новые SL/TP: используй уровни Kronos или null.
+        prompt = f"""Ты — подтверждающий аналитик для модели {model_name} по символу {symbol}.
+    {model_name} — главный источник направления и торговых уровней. Не меняй его BUY/SELL/HOLD.
+    Проверь его вывод техническими данными и верни тот же signal. Если {model_name} дал HOLD,
+    верни HOLD. Не изобретай новые SL/TP: используй уровни {model_name} или null.
 
-    ВЫВОД KRONOS:
+    ВЫВОД {model_name.upper()}:
     {kronos_context}
 
     ТЕХНИЧЕСКИЕ ИНДИКАТОРЫ:
@@ -391,21 +428,30 @@ class AIEngine:
             logger.debug("Cache hit for prediction")
             return cached
 
-        # Kronos РїСЂРµРґСЃРєР°Р·Р°РЅРёРµ (РµСЃР»Рё РІРєР»СЋС‡РµРЅРѕ Рё РјРѕРґРµР»СЊ Р·Р°РіСЂСѓР¶РµРЅР°)
+        # Первичный AI-анализ (Kronos или Kairos в зависимости от settings.AI_PREDICTOR)
         kronos_signal = None
         kronos_issue = None
+        predictor_type = getattr(settings, "AI_PREDICTOR", "kronos").lower().strip()
+        predictor_name = "Kairos" if predictor_type == "kairos" else "Kronos"
+
         if use_kronos and settings.USE_KRONOS_LOCAL:
             try:
-                kronos_result = self._predict_with_kronos(candles_df, symbol=symbol)
-                if kronos_result:
-                    kronos_signal = kronos_result
+                if predictor_type == "kairos":
+                    pred_result = self._predict_with_kairos(candles_df, symbol=symbol)
+                    pred_issue = self._last_kairos_issue
                 else:
-                    kronos_issue = self._last_kronos_issue or "Kronos returned no forecast"
+                    pred_result = self._predict_with_kronos(candles_df, symbol=symbol)
+                    pred_issue = self._last_kronos_issue
+
+                if pred_result:
+                    kronos_signal = pred_result
+                else:
+                    kronos_issue = pred_issue or f"{predictor_name} returned no forecast"
             except Exception as e:
                 kronos_issue = f"analysis failed: {type(e).__name__}: {e}"
-                logger.warning(f"Kronos prediction failed, continuing with technical analysis only: {e}")
+                logger.warning(f"{predictor_name} prediction failed, continuing with technical analysis only: {e}")
         else:
-            kronos_issue = "Kronos analysis is disabled"
+            kronos_issue = f"{predictor_name} analysis is disabled"
 
         # Ollama fallback (РµСЃР»Рё РІРєР»СЋС‡РµРЅРѕ)
         gemini_signal = None
@@ -569,20 +615,24 @@ class AIEngine:
         gemini: Optional[PredictionResult],
         kronos_issue: Optional[str] = None,
     ) -> PredictionResult:
-        """Kronos задает направление; остальные модели только подтверждают его."""
+        """Главный предиктор (Kronos/Kairos) задает направление; остальные модели только подтверждают его."""
+        predictor_type = getattr(settings, "AI_PREDICTOR", "kronos").lower().strip()
+        is_kairos = predictor_type == "kairos" or (kronos and "Kairos" in getattr(kronos, "reason", ""))
+        name = "Kairos" if is_kairos else "Kronos"
+
         if not kronos:
             detail = f": {kronos_issue}" if kronos_issue else ""
             return PredictionResult(
                 signal=SignalType.HOLD,
                 confidence=0.0,
-                reason=f"Kronos unavailable{detail}",
+                reason=f"{name} unavailable{detail}",
             )
 
         if kronos.signal == SignalType.HOLD:
             return PredictionResult(
                 signal=SignalType.HOLD,
                 confidence=kronos.confidence,
-                reason=f"Kronos HOLD; confirmations cannot override Kronos. Reason: {kronos.reason}",
+                reason=f"{name} HOLD; confirmations cannot override {name}. Reason: {kronos.reason}",
             )
 
         confirmations = [item for item in (tech, gemini) if item and item.signal != SignalType.HOLD]
@@ -596,13 +646,13 @@ class AIEngine:
             return PredictionResult(
                 signal=SignalType.HOLD,
                 confidence=final_confidence,
-                reason=f"Kronos direction below confidence threshold ({final_confidence:.2f} < {threshold:.2f})",
+                reason=f"{name} direction below confidence threshold ({final_confidence:.2f} < {threshold:.2f})",
             )
 
         return PredictionResult(
             signal=kronos.signal,
             confidence=final_confidence,
-            reason="Kronos primary; confirmations: " + "; ".join(item.reason for item in confirmations[:2]),
+            reason=f"{name} primary; confirmations: " + "; ".join(item.reason for item in confirmations[:2]),
         )
 
     def _apply_risk_levels(

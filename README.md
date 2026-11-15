@@ -57,6 +57,7 @@ mt5TradingBot/
 ├── engine/
 │   ├── models.py            ← типы: SignalType, PredictionResult, TechnicalIndicators
 │   ├── kronos.py            ← адаптер предобученной модели Kronos
+│   ├── kairos.py            ← эвристический K-line алгоритм Kairos
 │   └── ai.py                ← главный AI-движок, объединяет все три источника
 │
 ├── trader/
@@ -108,6 +109,17 @@ PyTorch — установите её командой для Windows из
 ```bash
 python -c "import torch; print(torch.cuda.is_available())"
 ```
+
+### Модуль Kairos и выбор предиктора
+
+В проекте доступны два взаимозаменяемых первичных предиктора:
+1. **`kronos`** (по умолчанию) — глубокая предобученная нейросеть финансовых рядов (PyTorch, checkpoint `NeoQuasar/Kronos-base`). Прогнозирует свечи на GPU/CPU.
+2. **`kairos`** — легковесный, высокоскоростной эвристический модуль анализа паттернов свечей (мультимасштабный импульс 5/10/20, пин-бары, поглощения, Z-score объема). Не требует скачивания тяжелых весов нейросети и работает мгновенно на CPU.
+
+Выбор настраивается:
+- Через `.env`: `AI_PREDICTOR=kronos` или `AI_PREDICTOR=kairos`
+- В `config/settings.py`: параметр `AI_PREDICTOR: str = "kronos"`
+- Через аргумент командной строки: `--predictor {kronos,kairos}` (например, `python main.py --demo --predictor kairos`)
 
 ### Запуск
 

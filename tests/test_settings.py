@@ -30,6 +30,9 @@ class TestSettings(unittest.TestCase):
         self.assertGreater(settings.DEFAULT_SL_PIPS, 0)
         self.assertEqual(settings.DEFAULT_TP_PIPS, 100.0)
 
+    def test_ai_predictor_setting(self):
+        self.assertIn(settings.AI_PREDICTOR.lower(), ["kronos", "kairos"])
+
 
 class TestTradingConfig(unittest.TestCase):
     """Проверки торговой конфигурации."""

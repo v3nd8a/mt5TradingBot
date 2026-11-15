@@ -34,7 +34,14 @@ def parse_args():
         help="Comma-separated symbols to trade (for example: BTCUSD,XAUUSD)",
     )
     parser.add_argument("--analyze", type=str, help="Analyze symbol and exit (no trading loop)")
-    parser.add_argument("--horizon-scan", type=str, help="Walk-forward Kronos horizon scan for symbol and exit")
+    parser.add_argument(
+        "--predictor",
+        type=str,
+        choices=["kronos", "kairos"],
+        default=None,
+        help="Primary AI predictor: kronos (deep model) or kairos (heuristic K-line engine)",
+    )
+    parser.add_argument("--horizon-scan", type=str, help="Walk-forward Kronos/Kairos horizon scan for symbol and exit")
     parser.add_argument("--horizons", type=str, default="1,3,5,10,15,20,30", help="Comma-separated forecast horizons")
     return parser.parse_args()
 
@@ -58,6 +65,9 @@ async def main():
     if args.symbol:
         settings.TRADING_SYMBOLS = args.symbol
         settings.DEFAULT_SYMBOL = args.symbol.split(",")[0].strip().upper()
+
+    if args.predictor:
+        settings.AI_PREDICTOR = args.predictor.lower()
 
     loop_task = None
     bot_task = None
@@ -117,8 +127,16 @@ async def main():
                 return
             candles = loop_inst.mt5.get_candles(args.horizon_scan, "H1", settings.KRONOS_HISTORY_CANDLES)
             horizons = tuple(int(value.strip()) for value in args.horizons.split(",") if value.strip())
-            report = get_kronos_predictor().evaluate_horizons(candles, args.horizon_scan, horizons)
-            print(f"\nKronos horizon scan: {args.horizon_scan} H1 ({len(candles)} candles)")
+            predictor_type = getattr(settings, "AI_PREDICTOR", "kronos").lower().strip()
+            if predictor_type == "kairos":
+                from engine.kairos import get_kairos_predictor
+                predictor = get_kairos_predictor()
+                predictor_name = "Kairos"
+            else:
+                predictor = get_kronos_predictor()
+                predictor_name = "Kronos"
+            report = predictor.evaluate_horizons(candles, args.horizon_scan, horizons)
+            print(f"\n{predictor_name} horizon scan: {args.horizon_scan} H1 ({len(candles)} candles)")
             print("horizon | samples | coverage | accuracy | avg_return | total_return | profit_factor")
             for horizon, metrics in report.items():
                 profit_factor = metrics["profit_factor"]
@@ -131,7 +149,7 @@ async def main():
             print("\nConfidence calibration (confidence vs observed win rate):")
             for horizon in horizons:
                 print(f"\nHorizon {horizon} candles")
-                for bucket in get_kronos_predictor().calibrate_confidence(candles, args.horizon_scan, horizon):
+                for bucket in predictor.calibrate_confidence(candles, args.horizon_scan, horizon):
                     print(
                         f"  {bucket['bucket_start']:.1f}-{bucket['bucket_end']:.1f}: "
                         f"n={bucket['samples']:.0f}, confidence={bucket['average_confidence']:.3f}, "

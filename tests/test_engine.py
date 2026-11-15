@@ -11,6 +11,7 @@ from config.settings import settings
 from engine.models import SignalType, PredictionResult, TechnicalIndicators
 from engine.ai import TechnicalAnalysis, PredictionCache, AIEngine
 from engine.kronos import KronosPredictor
+from engine.kairos import KairosPredictor, KairosDataPreprocessor, get_kairos_predictor
 
 
 def create_sample_candles(n: int = 250, trend: str = "bullish") -> pd.DataFrame:
@@ -327,6 +328,91 @@ class TestAIEngine(unittest.TestCase):
         prompt = self.engine._build_ollama_prompt("XAUUSD", indicators, [], kronos)
         self.assertIn("ВЫВОД KRONOS", prompt)
         self.assertIn("4400.0", prompt)
+
+    def test_analyze_pipeline_with_kairos(self):
+        original = settings.AI_PREDICTOR
+        settings.AI_PREDICTOR = "kairos"
+        try:
+            df = create_sample_candles(250, trend="bullish")
+            result = self.engine.analyze(df, "EURUSD", use_gemini=False)
+            self.assertIsInstance(result, PredictionResult)
+            self.assertIn(result.signal, [SignalType.BUY, SignalType.SELL, SignalType.HOLD])
+            self.assertTrue(0.0 <= result.confidence <= 1.0)
+            self.assertIn("Kairos", result.reason)
+        finally:
+            settings.AI_PREDICTOR = original
+
+    def test_combine_signals_with_kairos(self):
+        original = settings.AI_PREDICTOR
+        settings.AI_PREDICTOR = "kairos"
+        try:
+            kairos = PredictionResult(
+                signal=SignalType.BUY,
+                confidence=0.85,
+                reason="Kairos AI: 3 consecutive bullish candles",
+            )
+            tech = PredictionResult(signal=SignalType.BUY, confidence=0.8, reason="Technical bullish")
+            result = self.engine._combine_signals(tech, kairos, None)
+            self.assertEqual(result.signal, SignalType.BUY)
+            self.assertIn("Kairos primary", result.reason)
+        finally:
+            settings.AI_PREDICTOR = original
+
+
+class TestKairosPredictor(unittest.TestCase):
+    """Тестирование легковесного эвристического модуля Kairos."""
+
+    def setUp(self):
+        self.predictor = get_kairos_predictor()
+
+    def test_preprocessor_features(self):
+        df = create_sample_candles(60)
+        features = KairosDataPreprocessor.preprocess(df)
+        self.assertIsNotNone(features)
+        self.assertEqual(len(features.body_pct), 60)
+        self.assertEqual(len(features.returns), 60)
+        self.assertGreater(features.volatility, 0)
+
+    def test_preprocessor_insufficient_candles(self):
+        df = create_sample_candles(10)
+        features = KairosDataPreprocessor.preprocess(df)
+        self.assertIsNone(features)
+
+    def test_bullish_prediction(self):
+        df = create_sample_candles(60, trend="bullish")
+        result = self.predictor.predict(df, "EURUSD")
+        self.assertIsNotNone(result)
+        self.assertIn(result.signal, [SignalType.BUY, SignalType.HOLD])
+        if result.signal == SignalType.BUY:
+            self.assertIsNotNone(result.stop_loss)
+            self.assertIsNotNone(result.take_profit)
+            self.assertLess(result.stop_loss, df.iloc[-1]["close"])
+            self.assertGreater(result.take_profit, df.iloc[-1]["close"])
+
+    def test_bearish_prediction(self):
+        df = create_sample_candles(60, trend="bearish")
+        result = self.predictor.predict(df, "EURUSD")
+        self.assertIsNotNone(result)
+        self.assertIn(result.signal, [SignalType.SELL, SignalType.HOLD])
+        if result.signal == SignalType.SELL:
+            self.assertIsNotNone(result.stop_loss)
+            self.assertIsNotNone(result.take_profit)
+            self.assertGreater(result.stop_loss, df.iloc[-1]["close"])
+            self.assertLess(result.take_profit, df.iloc[-1]["close"])
+
+    def test_prediction_with_horizon(self):
+        df = create_sample_candles(120, trend="bullish")
+        result = self.predictor.predict(df, "EURUSD", horizon=10)
+        self.assertIsNotNone(result)
+        self.assertIn("10 candles", result.reason)
+        self.assertIn("Kairos AI", result.reason)
+
+    def test_evaluate_horizons(self):
+        df = create_sample_candles(150, trend="bullish")
+        report = self.predictor.evaluate_horizons(df, "EURUSD", horizons=(5, 10))
+        self.assertIn(5, report)
+        self.assertIn(10, report)
+        self.assertIn("directional_accuracy", report[5])
 
 
 if __name__ == "__main__":

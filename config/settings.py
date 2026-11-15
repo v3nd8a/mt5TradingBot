@@ -49,7 +49,8 @@ try:
         # ==================== Gemini / AI (deprecated, kept for compat) ====================
         GEMINI_API_KEY: str = ""
         GEMINI_MODEL: str = "gemini-2.5-flash"
-        USE_KRONOS_LOCAL: bool = True  # локальная модель Kronos
+        AI_PREDICTOR: str = "kronos"  # "kronos" (нейросеть) или "kairos" (эвристический K-line алгоритм)
+        USE_KRONOS_LOCAL: bool = True  # локальная модель (Kronos / Kairos)
         KRONOS_MODEL_NAME: str = "NeoQuasar/Kronos-base"
         KRONOS_TOKENIZER_NAME: str = "NeoQuasar/Kronos-Tokenizer-base"
         KRONOS_MAX_CONTEXT: int = 512
@@ -58,6 +59,7 @@ try:
         KRONOS_FORECAST_HORIZON: int = 10  # горизонта прогноза в свечах (10–15 обычно)
         KRONOS_HISTORY_CANDLES: int = 1000
         KRONOS_CALIBRATION_MIN_SAMPLES: int = 20
+        KAIROS_FORECAST_HORIZON: int = 10  # горизонт прогноза Kairos в свечах
 
         # ==================== Database ====================
         DB_DSN: str = "postgresql+psycopg2://postgres:password@localhost:5432/trading_db"
@@ -161,6 +163,7 @@ except ImportError:
         # ==================== Gemini / AI (deprecated, kept for compat) ====================
         GEMINI_API_KEY: str = ""
         GEMINI_MODEL: str = "gemini-2.0-flash"
+        AI_PREDICTOR: str = "kronos"
         USE_KRONOS_LOCAL: bool = True
         KRONOS_MODEL_NAME: str = "NeoQuasar/Kronos-base"
         KRONOS_TOKENIZER_NAME: str = "NeoQuasar/Kronos-Tokenizer-base"
@@ -170,6 +173,7 @@ except ImportError:
         KRONOS_FORECAST_HORIZON: int = 10
         KRONOS_HISTORY_CANDLES: int = 1000
         KRONOS_CALIBRATION_MIN_SAMPLES: int = 20
+        KAIROS_FORECAST_HORIZON: int = 10
 
         # ==================== Database ====================
         DB_DSN: str = "postgresql+psycopg2://postgres:password@localhost:5432/trading_db"
