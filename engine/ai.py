@@ -329,7 +329,7 @@ class AIEngine:
             for c in candles[-10:]
         ])
 
-        predictor_type = getattr(settings, "AI_PREDICTOR", "kronos").lower().strip()
+        predictor_type = getattr(settings, "AI_PREDICTOR", "kronos").split("#")[0].strip().lower()
         model_name = "Kairos" if (predictor_type == "kairos" or (kronos and "Kairos" in getattr(kronos, "reason", ""))) else "Kronos"
         kronos_context = (
             f"Сигнал: {kronos.signal.value}; confidence: {kronos.confidence:.3f}; "
@@ -431,13 +431,30 @@ class AIEngine:
         # Первичный AI-анализ (Kronos или Kairos в зависимости от settings.AI_PREDICTOR)
         kronos_signal = None
         kronos_issue = None
-        predictor_type = getattr(settings, "AI_PREDICTOR", "kronos").lower().strip()
+        predictor_type = getattr(settings, "AI_PREDICTOR", "kronos").split("#")[0].strip().lower()
         predictor_name = "Kairos" if predictor_type == "kairos" else "Kronos"
 
         if use_kronos and settings.USE_KRONOS_LOCAL:
             try:
                 if predictor_type == "kairos":
                     pred_result = self._predict_with_kairos(candles_df, symbol=symbol)
+                    if pred_result and self._kairos_model:
+                        calibration_horizon = int(getattr(settings, "KAIROS_FORECAST_HORIZON", settings.KRONOS_FORECAST_HORIZON))
+                        calibrated, samples = self._kairos_model.calibrated_confidence(
+                            pred_result.confidence,
+                            candles_df,
+                            symbol,
+                            calibration_horizon,
+                            int(settings.KRONOS_CALIBRATION_MIN_SAMPLES),
+                        )
+                        pred_result = PredictionResult(
+                            signal=pred_result.signal,
+                            confidence=calibrated,
+                            reason=f"{pred_result.reason} | calibrated from {samples} samples",
+                            target_price=pred_result.target_price,
+                            stop_loss=pred_result.stop_loss,
+                            take_profit=pred_result.take_profit,
+                        )
                     pred_issue = self._last_kairos_issue
                 else:
                     pred_result = self._predict_with_kronos(candles_df, symbol=symbol)
@@ -616,7 +633,7 @@ class AIEngine:
         kronos_issue: Optional[str] = None,
     ) -> PredictionResult:
         """Главный предиктор (Kronos/Kairos) задает направление; остальные модели только подтверждают его."""
-        predictor_type = getattr(settings, "AI_PREDICTOR", "kronos").lower().strip()
+        predictor_type = getattr(settings, "AI_PREDICTOR", "kronos").split("#")[0].strip().lower()
         is_kairos = predictor_type == "kairos" or (kronos and "Kairos" in getattr(kronos, "reason", ""))
         name = "Kairos" if is_kairos else "Kronos"
 

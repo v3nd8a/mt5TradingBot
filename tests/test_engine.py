@@ -317,17 +317,22 @@ class TestAIEngine(unittest.TestCase):
         self.assertIn("failed to load pretrained checkpoint", result.reason)
 
     def test_ollama_prompt_contains_kronos_context(self):
-        indicators = TechnicalIndicators(symbol="XAUUSD", current_price=4300.0)
-        kronos = PredictionResult(
-            signal=SignalType.BUY,
-            confidence=0.8,
-            target_price=4400.0,
-            stop_loss=4260.0,
-            take_profit=4400.0,
-        )
-        prompt = self.engine._build_ollama_prompt("XAUUSD", indicators, [], kronos)
-        self.assertIn("ВЫВОД KRONOS", prompt)
-        self.assertIn("4400.0", prompt)
+        original = settings.AI_PREDICTOR
+        settings.AI_PREDICTOR = "kronos"
+        try:
+            indicators = TechnicalIndicators(symbol="XAUUSD", current_price=4300.0)
+            kronos = PredictionResult(
+                signal=SignalType.BUY,
+                confidence=0.8,
+                target_price=4400.0,
+                stop_loss=4260.0,
+                take_profit=4400.0,
+            )
+            prompt = self.engine._build_ollama_prompt("XAUUSD", indicators, [], kronos)
+            self.assertIn("ВЫВОД KRONOS", prompt)
+            self.assertIn("4400.0", prompt)
+        finally:
+            settings.AI_PREDICTOR = original
 
     def test_analyze_pipeline_with_kairos(self):
         original = settings.AI_PREDICTOR

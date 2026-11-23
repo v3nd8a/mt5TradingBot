@@ -68,11 +68,11 @@ try:
         DEFAULT_SYMBOL: str = "XAUUSD"
         TRADING_SYMBOLS: str = ""
         TICK_INTERVAL_SEC: int = 3          # интервал опроса тиков
-        ANALYSIS_INTERVAL_MIN: int = 5     # интервал анализа (минуты)
+        ANALYSIS_INTERVAL_MIN: int = 10     # интервал анализа (минуты)
         MIN_ANALYSIS_INTERVAL_MIN: int = 3  # минимальный интервал при высокой волатильности
         CONFIDENCE_THRESHOLD: float = DEFAULT_CONFIDENCE_THRESHOLD  # мин. confidence для сигнала
-        MAX_POSITIONS: int = 2              # макс. обычных открытых позиций на счёте (50% BUY, 50% SELL)
-        MAX_POSITIONS_PER_SYMBOL: int = 2   # макс. обычных открытых позиций на тикер (50% BUY, 50% SELL)
+        MAX_POSITIONS: int = 20              # макс. обычных открытых позиций на счёте (50% BUY, 50% SELL)
+        MAX_POSITIONS_PER_SYMBOL: int = 20   # макс. обычных открытых позиций на тикер (50% BUY, 50% SELL)
         MAX_BUY_POSITIONS: Optional[int] = None              # переопределение лимита BUY на счёте (по умолч. MAX_POSITIONS // 2)
         MAX_SELL_POSITIONS: Optional[int] = None             # переопределение лимита SELL на счёте (по умолч. MAX_POSITIONS // 2)
         MAX_BUY_POSITIONS_PER_SYMBOL: Optional[int] = None   # переопределение лимита BUY на тикер (по умолч. MAX_POSITIONS_PER_SYMBOL // 2)

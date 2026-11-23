@@ -31,7 +31,8 @@ class TestSettings(unittest.TestCase):
         self.assertEqual(settings.DEFAULT_TP_PIPS, 100.0)
 
     def test_ai_predictor_setting(self):
-        self.assertIn(settings.AI_PREDICTOR.lower(), ["kronos", "kairos"])
+        cleaned = settings.AI_PREDICTOR.split("#")[0].strip().lower()
+        self.assertIn(cleaned, ["kronos", "kairos"])
 
 
 class TestTradingConfig(unittest.TestCase):
