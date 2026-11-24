@@ -36,3 +36,18 @@ build/
 # Database
 *.db
 *.sqlite
+
+# Docker
+docker/data/
+*.tar.gz
+
+# Deployment
+deploy-package.tar.gz
+
+# Temporary files
+tmp_*
+*.tmp
+data/
+
+# Vendor prediction results
+vendor/Kronos/webui/prediction_results/

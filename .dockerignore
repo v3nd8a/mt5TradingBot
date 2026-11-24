@@ -1,0 +1,36 @@
+# ============================================
+# .dockerignore — исключения при сборке Docker
+# ============================================
+
+.git
+.gitmodules
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.venv
+venv
+env
+.env
+logs/
+data/
+*.log
+*.egg-info
+dist/
+build/
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+tmp_*
+*.tmp
+CLAUDE.md
+GRAPH.md
+PLAN.md
+README.md
+.claude/
+.continue/
+vendor/Kronos/webui/prediction_results/
+vendor/Kronos/.git

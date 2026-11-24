@@ -11,7 +11,10 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
-import MetaTrader5 as mt5_module
+try:
+    from connector.mt5_bridge import mt5_module
+except ImportError:
+    import MetaTrader5 as mt5_module
 import pandas as pd
 
 from config.settings import settings

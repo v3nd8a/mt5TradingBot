@@ -1,13 +1,56 @@
 # ============================================
-# TradingBot "Крон" — Docker Compose (P4)
+# TradingBot "Крон" — Docker Compose (Production)
 #
-# Поднимаем PostgreSQL + pgAdmin для мониторинга
-# MT5 Connector запускается на хосте (не в контейнере)
+# Services:
+#   - mt5-bot: MT5 Terminal (Wine) + RPyC Bridge + Trading Bot
+#   - postgres: PostgreSQL 16
+#   - pgadmin: PgAdmin (optional, для мониторинга)
 # ============================================
 
-version: '3.8'
-
 services:
+  # === MT5 Trading Bot (всё в одном контейнере) ===
+  mt5-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: krons-mt5-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Переопределяем DB_DSN для docker-сети
+      - DB_DSN=postgresql+psycopg2://postgres:${DB_PASS:-3981545b}@postgres:5432/${DB_NAME:-trading_db}
+      # MT5 аккаунт (берётся из .env)
+      - MT5_LOGIN=${MT5_LOGIN}
+      - MT5_PASSWORD=${MT5_PASSWORD}
+      - MT5_SERVER=${MT5_SERVER}
+      - MT5_DEMO_LOGIN=${MT5_DEMO_LOGIN}
+      - MT5_DEMO_PASSWORD=${MT5_DEMO_PASSWORD}
+      - MT5_DEMO_SERVER=${MT5_DEMO_SERVER}
+      - MT5_DEMO_MODE=${MT5_DEMO_MODE:-true}
+      # Ollama (если запущен на хосте)
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      # Docker marker
+      - DOCKER_CONTAINER=1
+    ports:
+      - "18812:18812"  # RPyC bridge (для отладки)
+    volumes:
+      - mt5-data:/root/.wine/drive_c/Program Files/MetaTrader 5/MQL5
+      - bot-logs:/app/logs
+      - bot-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - krons-net
+    # Лимиты ресурсов
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
   # === PostgreSQL 16 ===
   postgres:
     image: postgres:16-alpine
@@ -35,6 +78,8 @@ services:
     image: dpage/pgadmin4:latest
     container_name: krons-pgadmin
     restart: unless-stopped
+    profiles:
+      - monitoring
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@kronstrading.com}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin123}
@@ -46,25 +91,14 @@ services:
     networks:
       - krons-net
 
-  # === TradingBot (опционально, если запускать вне Windows) ===
-  tradingbot:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: krons-trading-bot
-    restart: unless-stopped
-    env_file:
-      - .env
-    depends_on:
-      postgres:
-        condition: service_healthy
-    # Примечание: MT5 Python пакет работает только на Windows!
-    # Этот сервис для Linux-серверов с криптоаналитикой (gemini fallback)
-    networks:
-      - krons-net
-
 volumes:
   pgdata:
+    driver: local
+  mt5-data:
+    driver: local
+  bot-logs:
+    driver: local
+  bot-data:
     driver: local
 
 networks:

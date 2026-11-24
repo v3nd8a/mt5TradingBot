@@ -88,7 +88,10 @@ class OrderExecutor:
         if not account:
             return None
         
-        import MetaTrader5 as mt5_module
+        try:
+            from connector.mt5_bridge import mt5_module
+        except ImportError:
+            import MetaTrader5 as mt5_module
         info = mt5_module.symbol_info(symbol)
         if info is None:
             logger.warning(f"Cannot get symbol info for {symbol}")
@@ -126,7 +129,10 @@ class OrderExecutor:
         # Базовый fallback, если прогноз не содержит валидной цены цели.
         sl_pips = settings.DEFAULT_SL_PIPS
         tp_pips = settings.DEFAULT_TP_PIPS
-        import MetaTrader5 as mt5_module
+        try:
+            from connector.mt5_bridge import mt5_module
+        except ImportError:
+            import MetaTrader5 as mt5_module
         symbol_info = mt5_module.symbol_info(symbol)
         point = (
             float(symbol_info.point)
@@ -221,7 +227,10 @@ class OrderExecutor:
 
     @staticmethod
     def _get_point(symbol: str) -> float:
-        import MetaTrader5 as mt5_module
+        try:
+            from connector.mt5_bridge import mt5_module
+        except ImportError:
+            import MetaTrader5 as mt5_module
         info = mt5_module.symbol_info(symbol)
         return float(info.point) if info and info.point > 0 else (0.01 if "JPY" in symbol else 0.0001)
 
@@ -267,7 +276,10 @@ class OrderExecutor:
 
     def _get_current_price(self, symbol: str, direction: str) -> Optional[float]:
         """Получить текущую цену."""
-        import MetaTrader5 as mt5_module
+        try:
+            from connector.mt5_bridge import mt5_module
+        except ImportError:
+            import MetaTrader5 as mt5_module
         info = mt5_module.symbol_info(symbol)
         if info is None:
             return None
