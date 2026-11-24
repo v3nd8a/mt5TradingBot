@@ -21,8 +21,6 @@ from config.settings import settings, LOGS_DIR
 from connector.mt5 import MT5Connector
 from engine.ai import AIEngine
 from trader.order_executor import OrderExecutor, OrderRequest
-from db.engine import health_check, init_db, run_schema_migration, get_db_session
-from db.models import Signal, Trade, PortfolioSnapshot
 
 logger = logging.getLogger("trader")
 
@@ -35,7 +33,6 @@ class TradingLoop:
         self.ai = AIEngine()
         self.executor = OrderExecutor(self.mt5)
         self._running = False
-        self._db_available = False
         configured_symbols = getattr(settings, "TRADING_SYMBOLS", "") or settings.DEFAULT_SYMBOL
         self._symbols = self._parse_symbols(configured_symbols)
         self._current_symbol: str = self._symbols[0]
@@ -116,26 +113,14 @@ class TradingLoop:
         # Создаём директорию логов
         LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
-        # 1. Инициализация БД (M1 + P2)
-        logger.info("Initializing database...")
-        init_db()
-        run_schema_migration()
-
-        # Проверяем доступность БД
-        self._db_available = await health_check()
-        if not self._db_available:
-            logger.warning("Database unavailable — running in memory/file-log mode without DB persistence")
-        else:
-            logger.info("Database connected and ready")
-
-        # 2. Подключение к MT5 (M2)
+        # 1. Подключение к MT5
         logger.info("Connecting to MT5...")
         connected = self.mt5.connect()
         if not connected:
             logger.critical("MT5 connection failed — cannot proceed without MT5!")
             return
 
-        # 3. Загрузка первых свечей для всех выбранных символов
+        # 2. Загрузка первых свечей для всех выбранных символов
         for symbol in self._symbols:
             candles_df = self.mt5.get_candles(
                 symbol=symbol,
@@ -143,11 +128,7 @@ class TradingLoop:
                 count=settings.KRONOS_HISTORY_CANDLES,
             )
             if not candles_df.empty:
-                self.mt5.save_candles_to_db(candles_df, symbol, "H1")
                 logger.info(f"Loaded {len(candles_df)} initial candles for {symbol}")
-
-        # 4. Сохраняем начальный портфолио снимок
-        await self._save_portfolio_snapshot()
 
         # Запуск цикла
         self._running = True
@@ -185,8 +166,7 @@ class TradingLoop:
         cycle_start = datetime.now()
 
         try:
-            logger.info(f"\n{'='*40}")
-            logger.info(f"[Cycle #{self._total_cycles}] Analysis started for {self._current_symbol} at {cycle_start.strftime('%H:%M:%S')}")
+            logger.info(f"[Cycle #{self._total_cycles}] {self._current_symbol} ({cycle_start.strftime('%H:%M:%S')})")
 
             # 1. Проверка MT5
             if not self.mt5.is_connected:
@@ -194,7 +174,6 @@ class TradingLoop:
                 connected = self.mt5.connect()
                 if not connected:
                     logger.warning("Reconnect failed — skipping this cycle, will try next time")
-                    await self._save_portfolio_snapshot()
                     return
 
             # 2. Получить текущую цену и обновить свечи
@@ -219,15 +198,11 @@ class TradingLoop:
             if management["trailed"] or management["hedged"]:
                 logger.info(f"[RISK] trailing={management['trailed']} hedges={management['hedged']}")
 
-            # Сохраняем в БД
-            self.mt5.save_candles_to_db(candles_df, self._current_symbol, "H1")
-
-            # 3. AI Анализ (M3)
+            # 3. AI Анализ
             signal = self.ai.analyze(
                 candles_df=candles_df,
                 symbol=self._current_symbol,
                 use_kronos=settings.USE_KRONOS_LOCAL,
-                use_gemini=settings.USE_OLLAMA,
             )
 
             self._signals_generated += 1
@@ -237,10 +212,7 @@ class TradingLoop:
             self._last_candle_count = len(candles_df)
             self._last_analysis_at = datetime.now()
 
-            # 4. Сохраняем сигнал в БД
-            await self._save_signal(signal)
-
-            # 5. Если сигнал actionable — исполняем ордер (M4)
+            # 4. Если сигнал actionable — исполняем ордер
             if signal.is_actionable:
                 logger.info(f"[SIGNAL] {signal.signal.value} confidence={signal.confidence:.2f}")
                 closed = self.executor.close_on_reversal(signal, self._current_symbol)
@@ -259,8 +231,6 @@ class TradingLoop:
                         else:
                             logger.info(f"[ORDER EXECUTED] {order_request.direction} {order_request.volume:.2f} @ current price")
 
-                        await self._save_trade(signal, order_request)
-
                         try:
                             from bot.bot import get_bot_token
                             bot_inst = get_bot_token()
@@ -278,96 +248,13 @@ class TradingLoop:
                         self._orders_failed += 1
                         logger.error(f"[ORDER FAILED] {signal.signal.value} for {self._current_symbol}")
             else:
-                logger.info(f"[HOLD] No actionable signal — waiting next cycle")
-
-            await self._save_portfolio_snapshot()
+                logger.debug(f"[HOLD] No actionable signal — waiting next cycle")
 
             elapsed = (datetime.now() - cycle_start).total_seconds()
-            logger.info(f"[CYCLE COMPLETE] Elapsed: {elapsed:.1f}s | Orders today: {self._orders_executed} exec / {self._orders_failed} fail")
+            logger.debug(f"[CYCLE COMPLETE] Elapsed: {elapsed:.1f}s | Orders: {self._orders_executed} exec / {self._orders_failed} fail")
 
         except Exception as e:
             logger.error(f"[CYCLE ERROR] Unexpected exception: {e}", exc_info=True)
-            await self._save_portfolio_snapshot()
-
-    async def _save_signal(self, signal):
-        """Сохранить AI сигнал в БД."""
-        if not self._db_available:
-            return
-
-        try:
-            async with get_db_session() as session:
-                sa_signal = Signal(
-                    symbol=self._current_symbol,
-                    signal_type=signal.signal.value,
-                    confidence=signal.confidence,
-                    reason=signal.reason[:500] if signal.reason else None,
-                    candle_count=len(getattr(signal, '_candles', [])) or 300,
-                    timeframe="H1",
-                    model_version="kronos-gemini/v1.0",
-                )
-                session.add(sa_signal)
-                await session.commit()
-                logger.debug(f"Signal saved to DB: {sa_signal.id}")
-        except Exception as e:
-            logger.error(f"Failed to save signal to DB: {e}")
-
-    async def _save_trade(self, signal, order_request: OrderRequest):
-        """Сохранить исполненную сделку в БД."""
-        if not self._db_available:
-            return
-
-        try:
-            async with get_db_session() as session:
-                sa_trade = Trade(
-                    symbol=order_request.symbol,
-                    direction=order_request.direction,
-                    order_type="MARKET",
-                    volume=order_request.volume,
-                    entry_price=0.0,  # будет обновлено после исполнения MT5
-                    sl_price=order_request.sl_price,
-                    tp_price=order_request.tp_price,
-                    status="OPEN",
-                    notes=f"Signal: {signal.reason[:100]}" if signal.reason else None,
-                )
-                session.add(sa_trade)
-                await session.commit()
-        except Exception as e:
-            logger.error(f"Failed to save trade to DB: {e}")
-
-    async def _save_portfolio_snapshot(self):
-        """Сохранить снимок портфеля в БД."""
-        if not self._db_available:
-            return
-
-        try:
-            account_info = self.mt5.get_account_info()
-            if not account_info:
-                return
-
-            positions = self.mt5.get_positions()
-            
-            async with get_db_session() as session:
-                snapshot = PortfolioSnapshot(
-                    balance=account_info["balance"],
-                    equity=account_info["equity"],
-                    margin=account_info["margin"],
-                    free_margin=account_info["free_margin"],
-                    profit_total=account_info["profit"],
-                    positions_count=len(positions),
-                    metadata_json={
-                        "login": account_info["login"],
-                        "server": account_info["server"],
-                        "symbol_trading": self._current_symbol,
-                        "symbols_trading": self._symbols,
-                        "orders_today": self._orders_executed,
-                        "failures_today": self._orders_failed,
-                    },
-                )
-                
-                session.add(snapshot)
-                await session.commit()
-        except Exception as e:
-            logger.error(f"Failed to save portfolio snapshot to DB: {e}")
 
     def stop(self):
         """Graceful shutdown."""

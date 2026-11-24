@@ -42,28 +42,15 @@ def setup_logging() -> logging.Logger:
     console_handler.addFilter(ConsoleNoiseFilter())
     root_logger.addHandler(console_handler)
 
-    # === File handlers (one per module) ===
-    modules = {
-        "root": "tradingbot.log",
-        "mt5_connector": "mt5_connector.log",
-        "ai_engine": "ai_engine.log",
-        "trader": "trader.log",
-        "db_logger": "database.log",
-        "telegram_bot": "telegram_bot.log",
-    }
-
-    for logger_name, filename in modules.items():
-        file_handler = RotatingFileHandler(
-            LOGS_DIR / filename,
-            maxBytes=settings.LOG_MAX_BYTES,
-            backupCount=settings.LOG_BACKUP_COUNT,
-            encoding="utf-8",
-        )
-        file_handler.setFormatter(log_format)
-        
-        logger = logging.getLogger(logger_name)
-        logger.addHandler(file_handler)
-        logger.setLevel(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
+    # === File handler (single consolidated log) ===
+    file_handler = RotatingFileHandler(
+        LOGS_DIR / "tradingbot.log",
+        maxBytes=settings.LOG_MAX_BYTES,
+        backupCount=settings.LOG_BACKUP_COUNT,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(log_format)
+    root_logger.addHandler(file_handler)
 
     return root_logger
 

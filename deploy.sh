@@ -73,8 +73,6 @@ apt-get install -y git curl htop tmux
 echo "=== Настройка firewall ==="
 if command -v ufw &> /dev/null; then
     ufw allow 22/tcp
-    ufw allow 5432/tcp    # PostgreSQL (только если нужен извне)
-    ufw allow 5050/tcp    # pgAdmin
     ufw --force enable
 fi
 

@@ -35,7 +35,7 @@ if not exist ".venv\Lib\site-packages\MetaTrader5" (
 REM Check if .env exists
 if not exist ".env" (
     echo [WARNING] .env file not found! Create it from .env.example
-    echo [INFO]   Copy your MT5 credentials, GEMINI_API_KEY, DB_DSN etc.
+    echo [INFO]   Copy your MT5 credentials, BOT_TOKEN etc.
     pause
 ) else (
     echo [4/4] Configuration found! Starting bot...

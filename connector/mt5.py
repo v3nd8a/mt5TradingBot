@@ -18,7 +18,6 @@ except ImportError:
 import pandas as pd
 
 from config.settings import settings
-from db.models import Candle
 
 logger = logging.getLogger("mt5_connector")
 
@@ -175,56 +174,6 @@ class MT5Connector:
         except Exception as e:
             logger.error(f"Error fetching candles: {e}")
             return pd.DataFrame()
-
-    def save_candles_to_db(self, df: pd.DataFrame, symbol: str, timeframe: str) -> int:
-        """Сохранение свечей в PostgreSQL."""
-        if df.empty:
-            return 0
-
-        try:
-            from db.engine import sync_engine
-            from sqlalchemy.dialects.postgresql import insert as pg_insert
-
-            rows = []
-            for _, row in df.iterrows():
-                rows.append({
-                    "symbol": symbol,
-                    "timeframe": timeframe,
-                    "open_time": pd.Timestamp(row["time"]),
-                    "close_time": pd.Timestamp(row["time"]) + pd.Timedelta(minutes=self._tf_minutes(timeframe)),
-                    "open_price": float(row["open"]),
-                    "high_price": float(row["high"]),
-                    "low_price": float(row["low"]),
-                    "close_price": float(row["close"]),
-                    "volume": int(row.get("volume", 0)),
-                })
-
-            with sync_engine.connect() as conn:
-                with conn.begin():
-                    insert_stmt = pg_insert(Candle).values(rows)
-                    stmt = insert_stmt.on_conflict_do_update(
-                        index_elements=[Candle.symbol, Candle.timeframe, Candle.open_time],
-                        set_=dict(
-                            close_price=insert_stmt.excluded.close_price,
-                            high_price=insert_stmt.excluded.high_price,
-                            low_price=insert_stmt.excluded.low_price,
-                            open_price=insert_stmt.excluded.open_price,
-                            volume=insert_stmt.excluded.volume,
-                        ),
-                    )
-                    conn.execute(stmt)
-
-            logger.debug(f"Saved {len(df)} candles for {symbol} {timeframe}")
-            return len(df)
-        except Exception as e:
-            logger.warning(f"Could not save candles to DB: {e}")
-            return 0
-
-    @staticmethod
-    def _tf_minutes(tf: str) -> int:
-        """Конвертация таймфрейма в минуты."""
-        mapping = {"M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D1": 1440}
-        return mapping.get(tf, 60)
 
     # ==================== Account Info ====================
 

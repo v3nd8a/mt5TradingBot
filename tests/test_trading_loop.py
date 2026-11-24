@@ -68,14 +68,11 @@ class TestTradingLoopMultiSymbol(unittest.IsolatedAsyncioTestCase):
         trading_loop.mt5 = MagicMock()
         trading_loop.mt5.is_connected = True
         trading_loop.mt5.get_candles = lambda **kwargs: candles_with_range(1.0)
-        trading_loop.mt5.save_candles_to_db = lambda *args: True
         trading_loop.ai.analyze = lambda **kwargs: PredictionResult(
             signal=SignalType.HOLD,
             confidence=0.32,
             reason="Kronos consolidation",
         )
-        trading_loop._save_signal = AsyncMock()
-        trading_loop._save_portfolio_snapshot = AsyncMock()
 
         await trading_loop._trading_cycle_for_symbol()
 

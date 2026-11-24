@@ -257,7 +257,7 @@ class TestAIEngine(unittest.TestCase):
             target_price=float(df["close"].iloc[-1]) + 0.01,
         )
         with patch.object(self.engine, "_predict_with_kronos", return_value=kronos):
-            result = self.engine.analyze(df, "EURUSD", use_gemini=False)
+            result = self.engine.analyze(df, "EURUSD")
         self.assertIsInstance(result, PredictionResult)
         self.assertIn(result.signal, [SignalType.BUY, SignalType.SELL, SignalType.HOLD])
         self.assertTrue(0.0 <= result.confidence <= 1.0)
@@ -316,30 +316,12 @@ class TestAIEngine(unittest.TestCase):
         self.assertEqual(result.signal, SignalType.HOLD)
         self.assertIn("failed to load pretrained checkpoint", result.reason)
 
-    def test_ollama_prompt_contains_kronos_context(self):
-        original = settings.AI_PREDICTOR
-        settings.AI_PREDICTOR = "kronos"
-        try:
-            indicators = TechnicalIndicators(symbol="XAUUSD", current_price=4300.0)
-            kronos = PredictionResult(
-                signal=SignalType.BUY,
-                confidence=0.8,
-                target_price=4400.0,
-                stop_loss=4260.0,
-                take_profit=4400.0,
-            )
-            prompt = self.engine._build_ollama_prompt("XAUUSD", indicators, [], kronos)
-            self.assertIn("ВЫВОД KRONOS", prompt)
-            self.assertIn("4400.0", prompt)
-        finally:
-            settings.AI_PREDICTOR = original
-
     def test_analyze_pipeline_with_kairos(self):
         original = settings.AI_PREDICTOR
         settings.AI_PREDICTOR = "kairos"
         try:
             df = create_sample_candles(250, trend="bullish")
-            result = self.engine.analyze(df, "EURUSD", use_gemini=False)
+            result = self.engine.analyze(df, "EURUSD")
             self.assertIsInstance(result, PredictionResult)
             self.assertIn(result.signal, [SignalType.BUY, SignalType.SELL, SignalType.HOLD])
             self.assertTrue(0.0 <= result.confidence <= 1.0)

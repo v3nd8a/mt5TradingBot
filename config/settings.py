@@ -40,29 +40,17 @@ try:
         MT5_DEMO_MODE: bool = True
         MT5_SIMULATION_MODE: bool = False
 
-        # ==================== Ollama / AI ====================
-        OLLAMA_BASE_URL: str = "http://localhost:11434"
-        OLLAMA_MODEL: str = "qwen2.5-coder:7b-instruct"
-        USE_OLLAMA: bool = True  # использовать Ollama для анализа
-        OLLAMA_TIMEOUT: int = 60  # таймаут запроса к Ollama (сек)
-
-        # ==================== Gemini / AI (deprecated, kept for compat) ====================
-        GEMINI_API_KEY: str = ""
-        GEMINI_MODEL: str = "gemini-2.5-flash"
+        # ==================== AI ====================
         AI_PREDICTOR: str = "kronos"  # "kronos" (нейросеть) или "kairos" (эвристический K-line алгоритм)
         USE_KRONOS_LOCAL: bool = True  # локальная модель (Kronos / Kairos)
         KRONOS_MODEL_NAME: str = "NeoQuasar/Kronos-base"
         KRONOS_TOKENIZER_NAME: str = "NeoQuasar/Kronos-Tokenizer-base"
         KRONOS_MAX_CONTEXT: int = 512
         KRONOS_SAMPLE_COUNT: int = 1
-        USE_GEMINI_FALLBACK: bool = False  # deprecated — используем Ollama вместо этого
         KRONOS_FORECAST_HORIZON: int = 10  # горизонта прогноза в свечах (10–15 обычно)
         KRONOS_HISTORY_CANDLES: int = 1000
         KRONOS_CALIBRATION_MIN_SAMPLES: int = 20
         KAIROS_FORECAST_HORIZON: int = 10  # горизонт прогноза Kairos в свечах
-
-        # ==================== Database ====================
-        DB_DSN: str = "postgresql+psycopg2://postgres:password@localhost:5432/trading_db"
 
         # ==================== Trading ====================
         DEFAULT_SYMBOL: str = "XAUUSD"
@@ -123,8 +111,8 @@ try:
         # ==================== Logging ====================
         LOG_LEVEL: str = "INFO"
         LOG_DIR: str = "logs"
-        LOG_MAX_BYTES: int = 10 * 1024 * 1024  # 10 MB
-        LOG_BACKUP_COUNT: int = 10
+        LOG_MAX_BYTES: int = 5 * 1024 * 1024  # 5 MB
+        LOG_BACKUP_COUNT: int = 3
 
         # ==================== Cache ====================
         PREDICTION_CACHE_TTL_SEC: int = 300     # 5 мин кэш предсказаний
@@ -154,29 +142,17 @@ except ImportError:
         MT5_DEMO_MODE: bool = True
         MT5_SIMULATION_MODE: bool = False
 
-        # ==================== Ollama / AI ====================
-        OLLAMA_BASE_URL: str = "http://localhost:11434"
-        OLLAMA_MODEL: str = "qwen2.5-coder:7b-instruct"
-        USE_OLLAMA: bool = True
-        OLLAMA_TIMEOUT: int = 60
-
-        # ==================== Gemini / AI (deprecated, kept for compat) ====================
-        GEMINI_API_KEY: str = ""
-        GEMINI_MODEL: str = "gemini-2.0-flash"
+        # ==================== AI ====================
         AI_PREDICTOR: str = "kronos"
         USE_KRONOS_LOCAL: bool = True
         KRONOS_MODEL_NAME: str = "NeoQuasar/Kronos-base"
         KRONOS_TOKENIZER_NAME: str = "NeoQuasar/Kronos-Tokenizer-base"
         KRONOS_MAX_CONTEXT: int = 512
         KRONOS_SAMPLE_COUNT: int = 1
-        USE_GEMINI_FALLBACK: bool = False
         KRONOS_FORECAST_HORIZON: int = 10
         KRONOS_HISTORY_CANDLES: int = 1000
         KRONOS_CALIBRATION_MIN_SAMPLES: int = 20
         KAIROS_FORECAST_HORIZON: int = 10
-
-        # ==================== Database ====================
-        DB_DSN: str = "postgresql+psycopg2://postgres:password@localhost:5432/trading_db"
 
         # ==================== Trading ====================
         DEFAULT_SYMBOL: str = "EURUSD"
@@ -260,4 +236,3 @@ settings = Settings()
 
 # Path helpers
 LOGS_DIR = BASE_DIR / settings.LOG_DIR
-DB_SCHEMA_PATH = BASE_DIR / "db" / "schema.sql"

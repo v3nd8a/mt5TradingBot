@@ -36,11 +36,6 @@
 │  │  │  - Telegram Bot (опционально)                   │   │  │
 │  │  └──────────────────────────────────────────────────┘   │  │
 │  └─────────────────────────────────────────────────────────┘  │
-│                              │                                │
-│  ┌───────────────────────────▼─────────────────────────────┐  │
-│  │  Docker Container: postgres                             │  │
-│  │  PostgreSQL 16 (trading_db)                             │  │
-│  └─────────────────────────────────────────────────────────┘  │
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -153,7 +148,6 @@ mkdir -p /opt/tradingbot
 # - MT5_LOGIN / MT5_PASSWORD / MT5_SERVER (или демо-версии)
 # - BOT_TOKEN (Telegram бот)
 # - ADMIN_ID (ваш Telegram ID)
-# - DB_PASS (пароль БД)
 ```
 
 > [!WARNING]
@@ -274,9 +268,6 @@ bash deploy.sh --status
 # Показать логи бота
 bash deploy.sh --logs
 
-# Показать логи PostgreSQL
-bash deploy.sh --logs postgres
-
 # Перезапустить бота
 bash deploy.sh --restart
 
@@ -308,9 +299,6 @@ docker compose build mt5-bot && docker compose up -d mt5-bot
 # Полная остановка
 docker compose down
 
-# Запуск с pgAdmin для мониторинга БД
-docker compose --profile monitoring up -d
-
 # Зайти в контейнер (для отладки)
 docker compose exec mt5-bot bash
 
@@ -341,17 +329,6 @@ docker compose exec mt5-bot cat /app/logs/supervisord.log
 
 Бот запускается с флагом `--bot` и отправляет уведомления о сделках в Telegram.
 Убедитесь что `BOT_TOKEN` и `ADMIN_ID` заданы в `.env`.
-
-### pgAdmin
-
-```bash
-# Запуск с pgAdmin
-docker compose --profile monitoring up -d
-
-# Доступ: http://ВАШ_IP:5050
-# Email: admin@kronstrading.com (или что в PGADMIN_EMAIL)
-# Password: admin123 (или что в PGADMIN_PASSWORD)
-```
 
 ### Health Check RPyC Bridge
 
@@ -488,7 +465,6 @@ mt5TradingBot/
 │   ├── mt5_rpyc_server.py      # RPyC мост (работает в Wine Python)
 │   ├── mt5_startup.sh          # Скрипт запуска MT5 + AutoTrading
 │   ├── supervisord.conf        # Управление процессами
-│   ├── docker-compose.dev.yml  # Dev override (только БД)
 │   └── healthcheck.py          # Проверка здоровья
 ├── connector/
 │   ├── mt5.py                  # Коннектор (обновлён для bridge)

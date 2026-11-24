@@ -1,14 +1,11 @@
 # ============================================
 # TradingBot "Крон" — Docker Compose (Production)
 #
-# Services:
+# Service:
 #   - mt5-bot: MT5 Terminal (Wine) + RPyC Bridge + Trading Bot
-#   - postgres: PostgreSQL 16
-#   - pgadmin: PgAdmin (optional, для мониторинга)
 # ============================================
 
 services:
-  # === MT5 Trading Bot (всё в одном контейнере) ===
   mt5-bot:
     build:
       context: .
@@ -18,8 +15,6 @@ services:
     env_file:
       - .env
     environment:
-      # Переопределяем DB_DSN для docker-сети
-      - DB_DSN=postgresql+psycopg2://postgres:${DB_PASS:-3981545b}@postgres:5432/${DB_NAME:-trading_db}
       # MT5 аккаунт (берётся из .env)
       - MT5_LOGIN=${MT5_LOGIN}
       - MT5_PASSWORD=${MT5_PASSWORD}
@@ -28,8 +23,6 @@ services:
       - MT5_DEMO_PASSWORD=${MT5_DEMO_PASSWORD}
       - MT5_DEMO_SERVER=${MT5_DEMO_SERVER}
       - MT5_DEMO_MODE=${MT5_DEMO_MODE:-true}
-      # Ollama (если запущен на хосте)
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       # Docker marker
       - DOCKER_CONTAINER=1
     ports:
@@ -38,12 +31,6 @@ services:
       - mt5-data:/root/.wine/drive_c/Program Files/MetaTrader 5/MQL5
       - bot-logs:/app/logs
       - bot-data:/app/data
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - krons-net
-    # Лимиты ресурсов
     deploy:
       resources:
         limits:
@@ -51,56 +38,10 @@ services:
         reservations:
           memory: 2G
 
-  # === PostgreSQL 16 ===
-  postgres:
-    image: postgres:16-alpine
-    container_name: krons-trading-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${DB_NAME:-trading_db}
-      POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASS:-3981545b}
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - krons-net
-
-  # === pgAdmin (опционально, для мониторинга) ===
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: krons-pgadmin
-    restart: unless-stopped
-    profiles:
-      - monitoring
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@kronstrading.com}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin123}
-    ports:
-      - "5050:80"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - krons-net
-
 volumes:
-  pgdata:
-    driver: local
   mt5-data:
     driver: local
   bot-logs:
     driver: local
   bot-data:
     driver: local
-
-networks:
-  krons-net:
-    driver: bridge

@@ -7,11 +7,6 @@
 """
 
 import logging
-import time
-import math
-import json
-import urllib.error
-import urllib.request
 from datetime import datetime
 from collections import OrderedDict
 from typing import Optional
@@ -280,122 +275,6 @@ class AIEngine:
             logger.error(f"Kairos prediction error: {e}")
             return None
 
-    # ==================== Ollama Fallback ====================
-
-    def _analyze_with_ollama(
-        self,
-        symbol: str,
-        indicators: TechnicalIndicators,
-        candles: list[dict],
-        kronos: Optional[PredictionResult] = None,
-    ) -> Optional[PredictionResult]:
-        """Анализ через локальную Ollama-модель."""
-        prompt = self._build_ollama_prompt(symbol, indicators, candles, kronos)
-        payload = json.dumps({
-            "model": settings.OLLAMA_MODEL,
-            "prompt": prompt,
-            "stream": False,
-            "format": "json",
-        }).encode("utf-8")
-        request = urllib.request.Request(
-            f"{settings.OLLAMA_BASE_URL.rstrip('/')}/api/generate",
-            data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=settings.OLLAMA_TIMEOUT) as response:
-                result = json.loads(response.read().decode("utf-8"))
-            text = result.get("response", "")
-            if text:
-                return self._parse_ollama_response(text)
-        except urllib.error.URLError as e:
-            logger.warning(f"Ollama is unavailable at {settings.OLLAMA_BASE_URL}: {e}")
-        except Exception as e:
-            logger.warning(f"Ollama API call failed: {e}")
-
-        return None
-
-    def _build_ollama_prompt(
-        self,
-        symbol: str,
-        indicators: TechnicalIndicators,
-        candles: list[dict],
-        kronos: Optional[PredictionResult] = None,
-    ) -> str:
-        """Формируем промпт для Ollama/LLM анализа."""
-        recent_candles = "\n".join([
-            f"  Time: {c['time']}, O:{c['open']} H:{c['high']} L:{c['low']} C:{c['close']} V:{c['volume']}"
-            for c in candles[-10:]
-        ])
-
-        predictor_type = getattr(settings, "AI_PREDICTOR", "kronos").split("#")[0].strip().lower()
-        model_name = "Kairos" if (predictor_type == "kairos" or (kronos and "Kairos" in getattr(kronos, "reason", ""))) else "Kronos"
-        kronos_context = (
-            f"Сигнал: {kronos.signal.value}; confidence: {kronos.confidence:.3f}; "
-            f"target: {kronos.target_price}; SL: {kronos.stop_loss}; TP: {kronos.take_profit}; "
-            f"обоснование: {kronos.reason}"
-            if kronos else f"{model_name} недоступен"
-        )
-        prompt = f"""Ты — подтверждающий аналитик для модели {model_name} по символу {symbol}.
-    {model_name} — главный источник направления и торговых уровней. Не меняй его BUY/SELL/HOLD.
-    Проверь его вывод техническими данными и верни тот же signal. Если {model_name} дал HOLD,
-    верни HOLD. Не изобретай новые SL/TP: используй уровни {model_name} или null.
-
-    ВЫВОД {model_name.upper()}:
-    {kronos_context}
-
-    ТЕХНИЧЕСКИЕ ИНДИКАТОРЫ:
-
-ТЕКУЩИЕ ДАННЫЕ (цены ~{indicators.current_price}):
-- SMA20: {indicators.sma_20:.4f}, SMA50: {indicators.sma_50:.4f}, SMA200: {indicators.sma_200:.4f}
-- EMA12: {indicators.ema_12:.4f}, EMA26: {indicators.ema_26:.4f}
-- RSI(14): {indicators.rsi_14:.2f} ({indicators.rsi_signal})
-- MACD: {indicators.macd_line:.4f}, Signal: {indicators.macd_signal_line:.4f}, Histogram: {indicators.macd_histogram:.6f} ({indicators.macd_signal})
-- Bollinger: Lower={indicators.bb_lower:.4f}, Middle={indicators.bb_middle:.4f}, Upper={indicators.bb_upper:.4f}, Position={indicators.bb_position:.1%}
-- ATR(14): {indicators.atr_14:.6f}
-- Stoch: K={indicators.stoch_k:.1f}, D={indicators.stoch_d:.1f} ({indicators.stoch_signal})
-- Volume Ratio: {indicators.volume_ratio:.2f}
-
-ПОСЛЕДНИЕ 10 СВЕЧЕЙ:
-{recent_candles}
-
-Верни ТОЛЬКО JSON без текста:
-{{
-    "signal": "BUY" | "SELL" | "HOLD",
-    "confidence": 0.0-1.0,
-    "reason": "краткое обоснование (до 50 символов)",
-    "target_price": число_цели или null,
-    "stop_loss": число_SL или null,
-    "take_profit": число_TP или null
-}}
-"""
-        return prompt
-
-    def _parse_ollama_response(self, text: str) -> PredictionResult:
-        """Парсить ответ Ollama в PredictionResult."""
-        # Извлекаем JSON из текста
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        
-        if start == -1 or end == 0:
-            logger.warning("Could not find JSON in Ollama response")
-            return PredictionResult(signal=SignalType.HOLD, confidence=0.0, reason="No valid signal from AI")
-
-        try:
-            data = json.loads(text[start:end])
-            return PredictionResult(
-                signal=SignalType(data.get("signal", "HOLD")),
-                confidence=min(max(data.get("confidence", 0), 0), 1),
-                reason=data.get("reason", ""),
-                target_price=data.get("target_price"),
-                stop_loss=data.get("stop_loss"),
-                take_profit=data.get("take_profit"),
-            )
-        except json.JSONDecodeError:
-            logger.warning(f"Failed to parse Ollama JSON: {text[start:end]}")
-            return PredictionResult(signal=SignalType.HOLD, confidence=0.0, reason="Parse error")
-
     # ==================== Core Analysis (Always Available) ====================
 
     def analyze(
@@ -403,7 +282,6 @@ class AIEngine:
         candles_df: pd.DataFrame,
         symbol: str = "",
         use_kronos: bool = True,
-        use_gemini: bool = True,
     ) -> PredictionResult:
         """РћСЃРЅРѕРІРЅРѕР№ РјРµС‚РѕРґ Р°РЅР°Р»РёР·Р° вЂ” РєРѕРјР±РёРЅРёСЂРѕРІР°РЅРЅС‹Р№ РїРѕРґС…РѕРґ.
         
@@ -470,32 +348,10 @@ class AIEngine:
         else:
             kronos_issue = f"{predictor_name} analysis is disabled"
 
-        # Ollama fallback (РµСЃР»Рё РІРєР»СЋС‡РµРЅРѕ)
-        gemini_signal = None
-        if use_gemini and settings.USE_OLLAMA:
-            try:
-                recent_df = candles_df.tail(20).copy()
-                recent_dict = []
-                for _, row in recent_df.iterrows():
-                    recent_dict.append({
-                        "time": str(row["time"]),
-                        "open": float(row["open"]),
-                        "high": float(row["high"]),
-                        "low": float(row["low"]),
-                        "close": float(row["close"]),
-                        "volume": int(row.get("volume", 0)),
-                    })
-                gemini_result = self._analyze_with_ollama(symbol, indicators, recent_dict, kronos_signal)
-                if gemini_result and gemini_result.signal != SignalType.HOLD:
-                    gemini_signal = gemini_result
-            except Exception as e:
-                logger.warning(f"Ollama analysis failed, using technical + Kronos only: {e}")
-
-        # ==================== Р’Р·РІРµС€РµРЅРЅР°СЏ РєРѕРјР±РёРЅР°С†РёСЏ СЃРёРіРЅР°Р»РѕРІ ====================
+        # ==================== Взвешенная комбинация сигналов ====================
         final_signal = self._combine_signals(
             tech=tech_signal,
             kronos=kronos_signal,
-            gemini=gemini_signal,
             kronos_issue=kronos_issue,
         )
         final_signal = self._apply_risk_levels(
@@ -504,7 +360,6 @@ class AIEngine:
             symbol,
             kronos_signal,
             tech_signal,
-            gemini_signal,
         )
         
         # РЎРѕС…СЂР°РЅСЏРµРј РІ РєСЌС€
@@ -629,7 +484,7 @@ class AIEngine:
         self,
         tech: PredictionResult,
         kronos: Optional[PredictionResult],
-        gemini: Optional[PredictionResult],
+        gemini: Optional[PredictionResult] = None,
         kronos_issue: Optional[str] = None,
     ) -> PredictionResult:
         """Главный предиктор (Kronos/Kairos) задает направление; остальные модели только подтверждают его."""
